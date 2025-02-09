@@ -1,10 +1,10 @@
 # parameters
-ARG REPO_NAME="<REPO_NAME_HERE>"
-ARG DESCRIPTION="<DESCRIPTION_HERE>"
-ARG MAINTAINER="<YOUR_FULL_NAME> (<YOUR_EMAIL_ADDRESS>)"
+ARG REPO_NAME="mobile-robotics-ros"
+ARG DESCRIPTION="ROS Development and Kinematics"
+ARG MAINTAINER="Maanit Pratap Singh (maanitpr@ualberta.ca)"
 # pick an icon from: https://fontawesome.com/v4.7.0/icons/
 ARG ICON="cube"
-
+ARG VEHICLE_NAME=csc222905
 # ==================================================>
 # ==> Do not change the code below this line
 ARG ARCH
