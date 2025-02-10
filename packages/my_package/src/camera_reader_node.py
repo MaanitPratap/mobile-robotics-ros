@@ -52,18 +52,20 @@ class CameraReaderNode(DTROS):
             text,
             (10, 30),  # position
             cv2.FONT_HERSHEY_SIMPLEX,  # font
-            1,  # font scale
+            0.5,  # font scale
             (0, 255, 0),  # color (green)
             2  # thickness
         )
         
+ 
+        
+        # convert back to ROS compressed image and publish
+        processed_msg = self._bridge.cv2_to_compressed_imgmsg(annotated_image, dst_format='jpeg')
+        self._pub.publish(processed_msg)
+
         # display frame
         cv2.imshow(self._window, annotated_image)
         cv2.waitKey(1)
-        
-        # convert back to ROS compressed image and publish
-        processed_msg = self._bridge.cv2_to_compressed_imgmsg(annotated_image)
-        self._pub.publish(processed_msg)
 
 if __name__ == '__main__':
     # create the node
