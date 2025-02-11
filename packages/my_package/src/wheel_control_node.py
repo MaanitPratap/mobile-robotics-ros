@@ -24,14 +24,6 @@ class WheelControlNode(DTROS):
         wheels_topic = f"/{vehicle_name}/wheels_driver_node/wheels_cmd"
         self._publisher = rospy.Publisher(wheels_topic, WheelsCmdStamped, queue_size=1)
 
-        # odom_topic = f"/{vehicle_name}/odometry"
-        # self._subscriber = rospy.Subscriber(odom_topic, Odometry, self.odom_callback)
-
-        # self.rosbag_filename = "/bagfiles/mybagfile.bag"
-        # self.bag = rosbag.Bag(self.rosbag_filename, 'w')
-
-    # def odom_callback(self, msg):
-        # self.bag.write('odometry', msg)
 
     def move(self, vel_left, vel_right, duration, direction):
         message = WheelsCmdStamped(vel_left=vel_left, vel_right=vel_right)

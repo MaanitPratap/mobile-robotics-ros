@@ -4,6 +4,7 @@ import os
 import rospy
 from duckietown.dtros import DTROS, NodeType
 from duckietown_msgs.msg import WheelsCmdStamped
+from led_service.srv import SetLEDColor, SetLEDColorRequest
 import time
 
 class DPatternNode(DTROS):
@@ -12,6 +13,23 @@ class DPatternNode(DTROS):
         vehicle_name = os.environ['VEHICLE_NAME']
         self.wheels_topic = f"/{vehicle_name}/wheels_driver_node/wheels_cmd"
         self._publisher = rospy.Publisher(self.wheels_topic, WheelsCmdStamped, queue_size=1)
+
+        # Add state management
+        self.STATE_STOP = 1
+        self.STATE_TRACING = 2
+        self.STATE_RETURN = 3
+        self.current_state = self.STATE_STOP
+        
+        # LED colors for states
+        self.STOP_COLOR = "blue"
+        self.TRACING_COLOR = "green"
+        self.RETURN_COLOR = "red"
+        
+        # LED service client
+        rospy.loginfo("Waiting for LED service...")
+        rospy.wait_for_service('set_led_color')
+        self.led_service = rospy.ServiceProxy('set_led_color', SetLEDColor)
+        rospy.loginfo("LED service connected!")
 
         # Configuration for D pattern
         self.straight_speed = 0.7  # Base speed for straight lines
@@ -25,7 +43,7 @@ class DPatternNode(DTROS):
         self.connecting_distance = 0.9    # Length of connecting straight line
         
         # Turn and curve parameters
-        self.turn_duration = 0.40        # Duration for 90-degree turn
+        self.turn_duration = 0.45        # Duration for 90-degree turn
         self.turn_speed = 0.5            # Base speed for turning
         self.first_d_curve_duration = 2.4  # Time for first D curve
         self.second_d_curve_duration = 2.6 # Time for second D curve
@@ -33,6 +51,25 @@ class DPatternNode(DTROS):
         # Different wheel speeds for curved motion
         self.curve_speed_outer = 0.7     # Outer wheel speed during curve
         self.curve_speed_inner = 0.3     # Inner wheel speed during curve
+
+    def set_state(self, state):
+        """Set the current state and update LED color."""
+        self.current_state = state
+        color = {
+            self.STATE_STOP: self.STOP_COLOR,
+            self.STATE_TRACING: self.TRACING_COLOR,
+            self.STATE_RETURN: self.RETURN_COLOR
+        }[state]
+        
+        try:
+            # Create and send LED service request
+            req = SetLEDColorRequest()
+            req.color = color
+            response = self.led_service(req)
+            if not response.success:
+                rospy.logwarn(f"Failed to set LED color to {color}")
+        except rospy.ServiceException as e:
+            rospy.logwarn(f"LED service call failed: {e}")
 
     def move(self, vel_left, vel_right, duration, movement_type):
         """Execute a movement with specified wheel velocities for a given duration."""
@@ -101,8 +138,25 @@ class DPatternNode(DTROS):
     def run(self):
         """Main run function."""
         rospy.sleep(1.0)  # Initial pause to ensure everything is ready
+        
+        # State 1: Initial stop
+        self.set_state(self.STATE_STOP)
+        rospy.loginfo("Initial stop state - waiting 5 seconds")
+        rospy.sleep(5.0)
+        
+        # State 2: Tracing D pattern
+        self.set_state(self.STATE_TRACING)
+        rospy.loginfo("Starting D pattern trace")
         self.execute_d_pattern()
-        rospy.loginfo("Complete D pattern completed")
+        
+        # State 3: Return state
+        self.set_state(self.STATE_RETURN)
+        rospy.loginfo("Return state - waiting 5 seconds")
+        rospy.sleep(5.0)
+        
+        # Final stop state
+        self.set_state(self.STATE_STOP)
+        rospy.loginfo("Pattern completed")
 
 if __name__ == '__main__':
     node = DPatternNode(node_name='d_pattern_node')
