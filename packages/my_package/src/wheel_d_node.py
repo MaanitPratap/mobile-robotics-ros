@@ -21,11 +21,11 @@ class DPatternNode(DTROS):
         
         # Distances and durations
         self.long_straight_distance = 2  # Length of the long straight line
-        self.vertical_distance = 1.7      # Length of vertical line
-        self.connecting_distance = 1.1    # Length of connecting straight line
+        self.vertical_distance = 1.5      # Length of vertical line
+        self.connecting_distance = 0.9    # Length of connecting straight line
         
         # Turn and curve parameters
-        self.turn_duration = 0.38        # Duration for 90-degree turn
+        self.turn_duration = 0.40        # Duration for 90-degree turn
         self.turn_speed = 0.5            # Base speed for turning
         self.first_d_curve_duration = 2.4  # Time for first D curve
         self.second_d_curve_duration = 2.6 # Time for second D curve
@@ -90,7 +90,12 @@ class DPatternNode(DTROS):
 
         # Step 7: Final straight line back to start
         self.move(self.straight_speed_left, self.straight_speed_right,
-                 long_straight_duration, "final straight line")
+                 vertical_duration, "final straight line")
+        rospy.sleep(0.5)
+
+        # Step 2: 90-degree clockwise turn
+        self.move(self.turn_speed, -self.turn_speed, 
+                 self.turn_duration, "90-degree turn")
         rospy.sleep(0.5)
 
     def run(self):

@@ -1,26 +1,73 @@
 #!/usr/bin/env python3
+
 import os
 import rospy
 from duckietown.dtros import DTROS, NodeType
-from std_srvs.srv import SetBool, SetBoolResponse
 from duckietown_msgs.msg import LEDPattern
+from std_msgs.msg import ColorRGBA
+from my_package.srv import SetLEDColor, SetLEDColorResponse
 
 class LEDServiceNode(DTROS):
     def __init__(self, node_name):
         super(LEDServiceNode, self).__init__(node_name=node_name, node_type=NodeType.GENERIC)
-        vehicle_name = os.environ['VEHICLE_NAME']
-        led_topic = f"/{vehicle_name}/led_emitter_node/led_pattern"
-        self._publisher = rospy.Publisher(led_topic, LEDPattern, queue_size=1)
-        self._service = rospy.Service('set_led_color', SetBool, self.handle_set_led_color)
+        self.vehicle_name = os.environ['VEHICLE_NAME']
+        self.led_topic = f"/{self.vehicle_name}/led_emitter_node/led_pattern"
+        
+        # Publisher for LEDPattern
+        self.led_pub = rospy.Publisher(self.led_topic, LEDPattern, queue_size=1)
+        
+        # Service server
+        self.srv = rospy.Service('~set_led_color', SetLEDColor, self.handle_set_color)
+        
+        # Color mappings for states
+        self.colors = {
+            'stop': 'red',      # State 1: Stop
+            'moving': 'blue',   # State 2: D-pattern
+            'return': 'green'   # State 3: Return
+        }
+        
+        rospy.loginfo("LED Service is ready")
 
-    def handle_set_led_color(self, req):
+    def handle_set_color(self, req):
+        color = req.color.lower()
+        rospy.loginfo(f"Setting LED color to: {color}")
+        
+        # Create LED pattern message
         pattern = LEDPattern()
-        if req.data:
-            pattern.rgb_vals = [0, 0, 255] * 5  # Set all LEDs to blue
+        pattern.header.stamp = rospy.Time.now()
+        
+        # Set RGB values based on requested color
+        rgb = ColorRGBA()
+        if color == 'red':
+            rgb.r, rgb.g, rgb.b = 1.0, 0.0, 0.0
+        elif color == 'blue':
+            rgb.r, rgb.g, rgb.b = 0.0, 0.0, 1.0
+        elif color == 'green':
+            rgb.r, rgb.g, rgb.b = 0.0, 1.0, 0.0
         else:
-            pattern.rgb_vals = [0, 255, 0] * 5  # Set all LEDs to green
-        self._publisher.publish(pattern)
-        return SetBoolResponse(success=True, message="LED color changed")
+            rgb.r, rgb.g, rgb.b = 0.0, 0.0, 0.0
+        
+        rgb.a = 1.0
+        
+        # DB21M has 5 LEDs
+        pattern.rgb_vals = [rgb] * 5
+        
+        # Publish pattern
+        self.led_pub.publish(pattern)
+        
+        return SetLEDColorResponse(
+            success=True,
+            message=f"LED color set to {color}"
+        )
+
+    def on_shutdown(self):
+        """Turn off LEDs on shutdown"""
+        pattern = LEDPattern()
+        pattern.header.stamp = rospy.Time.now()
+        rgb = ColorRGBA()
+        rgb.a = 1.0
+        pattern.rgb_vals = [rgb] * 5
+        self.led_pub.publish(pattern)
 
 if __name__ == '__main__':
     node = LEDServiceNode(node_name='led_service_node')
