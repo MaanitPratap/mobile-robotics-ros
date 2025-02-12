@@ -6,6 +6,7 @@ from duckietown.dtros import DTROS, NodeType
 from duckietown_msgs.msg import WheelsCmdStamped
 from led_service.srv import SetLEDColor, SetLEDColorRequest
 import time
+import rosnode
 
 class DPatternNode(DTROS):
     def __init__(self, node_name):
@@ -23,7 +24,7 @@ class DPatternNode(DTROS):
         # LED colors for states
         self.STOP_COLOR = "blue"
         self.TRACING_COLOR = "green"
-        self.RETURN_COLOR = "red"
+        self.RETURN_COLOR = "green"
         
         # LED service client
         rospy.loginfo("Waiting for LED service...")
@@ -32,7 +33,7 @@ class DPatternNode(DTROS):
         rospy.loginfo("LED service connected!")
 
         # Configuration for D pattern
-        self.straight_speed = 0.7  # Base speed for straight lines
+        self.straight_speed = 0.65  # Base speed for straight lines
         # Calibration factors for straight paths
         self.straight_speed_left = 0.72  # Slightly faster left wheel
         self.straight_speed_right = 0.69   # Base right wheel speed
@@ -51,6 +52,7 @@ class DPatternNode(DTROS):
         # Different wheel speeds for curved motion
         self.curve_speed_outer = 0.7     # Outer wheel speed during curve
         self.curve_speed_inner = 0.3     # Inner wheel speed during curve
+        rospy.on_shutdown(self.on_shutdown)
 
     def set_state(self, state):
         """Set the current state and update LED color."""
@@ -89,6 +91,33 @@ class DPatternNode(DTROS):
         stop_message = WheelsCmdStamped(vel_left=0, vel_right=0)
         self._publisher.publish(stop_message)
         rospy.sleep(0.1)
+
+    def on_shutdown(self):
+        """Cleanup function called on shutdown."""
+        if not hasattr(self, '_shutdown_executed'):
+            self._shutdown_executed = True  # Flag to prevent multiple executions
+            
+            self.stop()  # Make sure robot stops
+            
+            # Send shutdown request to LED service node
+            try:
+                rospy.loginfo("Sending shutdown request to LED service node...")
+                nodes = rosnode.get_node_names()
+                led_node = '/led_service_node'  # Corrected node name
+                if led_node in nodes:
+                    # Set blue color one final time before shutdown
+                    self.set_state(self.STATE_STOP)
+                    rospy.sleep(0.5)  # Give time for the LED command to process
+                    
+                    # Now kill the LED node
+                    rosnode.kill_nodes([led_node])
+                    rospy.loginfo("LED service node shutdown request sent successfully")
+                else:
+                    rospy.logwarn("LED service node not found")
+            except Exception as e:
+                rospy.logerr(f"Error shutting down LED service node: {e}")
+                
+            rospy.loginfo("D pattern node shutdown cleanly")
 
     def execute_d_pattern(self):
         """Execute the complete D pattern in the correct sequence."""
@@ -159,5 +188,15 @@ class DPatternNode(DTROS):
         rospy.loginfo("Pattern completed")
 
 if __name__ == '__main__':
+    start_time = time.time()
     node = DPatternNode(node_name='d_pattern_node')
-    node.run()
+    try:
+        node.run()
+    except rospy.ROSInterruptException:
+        pass
+    finally:
+        end_time = time.time()
+        execution_time = end_time - start_time
+        print(f"Total execution time: {execution_time:.2f} seconds")
+        if not hasattr(node, '_shutdown_executed'):
+            node.on_shutdown()

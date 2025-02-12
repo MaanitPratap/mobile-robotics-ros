@@ -37,6 +37,7 @@ class LEDServiceNode(DTROS):
         self.srv = rospy.Service('set_led_color', SetLEDColor, self.handle_set_led_color)
         
         rospy.loginfo("LED service node initialized")
+        
 
     def handle_set_led_color(self, req):
         """Handle incoming service requests to change LED color."""
