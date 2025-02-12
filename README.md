@@ -117,13 +117,6 @@ dts duckiebot demo --demo_name lane_following --duckiebot_name csc22905 --packag
 docker -H csc22905.local run -it --rm --net=host duckietown/mobile-robotics:v3-arm32v7
 ```
 
-## Robot Configuration
-
-### Setting Trim Parameter
-```bash
-rosparam set /csc22905/kinematics_node/trim 0.0916
-```
-
 ## Getting Started
 
 1. **Network Connection**
@@ -146,13 +139,13 @@ rosparam set /csc22905/kinematics_node/trim 0.0916
 
 ## Exercise Files
 
-- **Hello from My_Robot**: `packages/my_package/my_script.py`
 - **Wheel Control Nodes**: `packages/my_package/src/`
 
 ## Support and Documentation
 
 - **Hardware Issues**: [DB21M Manual](https://docs.duckietown.com/daffy/opmanual-duckiebot/intro.html)
 - **Software Support**: [Duckietown Documentation](https://docs.duckietown.com/daffy/)
+- **Duckietown Developer Manual**: [Duckietown Developer Manual](https://docs.duckietown.com/daffy/devmanual-software/intro.html)
 
 ## Common Issues and Solutions
 
