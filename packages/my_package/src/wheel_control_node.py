@@ -5,7 +5,6 @@ import rospy
 import rosbag
 from duckietown.dtros import DTROS, NodeType
 from duckietown_msgs.msg import WheelsCmdStamped
-from nav_msgs.msg import Odometry
 import time
 
 WHEEL_SPEED = 0.2
@@ -13,9 +12,9 @@ DISTANCE = 1.25
 
 TIME_TO_TRAVEL = DISTANCE / WHEEL_SPEED
 
-ROTATION_SPEED = 0.2  # Speed for rotation
-ROTATION_SPEED_RIGHT = 0.15
-ROTATION_DURATION = 1
+# ROTATION_SPEED = 0.2  # Speed for rotation
+# ROTATION_SPEED_RIGHT = 0.15
+# ROTATION_DURATION = 1
 
 class WheelControlNode(DTROS):
     def __init__(self, node_name):
@@ -33,7 +32,7 @@ class WheelControlNode(DTROS):
             self._publisher.publish(message)
             time_elapsed = time.time() - start_time
             current_distance = time_elapsed * WHEEL_SPEED
-            rospy.loginfo(f"Driving {direction}: traveled {current_distance:.2f}/{DISTANCE:.2f} meters")
+            rospy.loginfo(f"Moving in {direction}: traveled {current_distance:.2f}/{DISTANCE:.2f} meters")
             rospy.sleep(0.1)
         self.stop()
 
@@ -47,12 +46,11 @@ class WheelControlNode(DTROS):
         self.move(WHEEL_SPEED, WHEEL_SPEED, TIME_TO_TRAVEL, "forward")
         rospy.sleep(0.1) 
         self.move(-WHEEL_SPEED, -WHEEL_SPEED, TIME_TO_TRAVEL, "backward")
-
         rospy.sleep(0.1)
-        self.move(ROTATION_SPEED, -ROTATION_SPEED_RIGHT, ROTATION_DURATION, "clockwise")
-        rospy.sleep(0.1)
-        self.move(-ROTATION_SPEED, ROTATION_SPEED, ROTATION_DURATION, "counterclockwise")
-        # self.bag.close()
+        # rospy.sleep(0.1)
+        # self.move(ROTATION_SPEED, -ROTATION_SPEED_RIGHT, ROTATION_DURATION, "clockwise")
+        # rospy.sleep(0.1)
+        # self.move(-ROTATION_SPEED, ROTATION_SPEED, ROTATION_DURATION, "counterclockwise")
 
 if __name__ == '__main__':
     node = WheelControlNode(node_name='wheel_control_node')

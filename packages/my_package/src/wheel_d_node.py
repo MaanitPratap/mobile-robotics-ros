@@ -15,7 +15,7 @@ class DPatternNode(DTROS):
         self.wheels_topic = f"/{vehicle_name}/wheels_driver_node/wheels_cmd"
         self._publisher = rospy.Publisher(self.wheels_topic, WheelsCmdStamped, queue_size=1)
 
-        # Add state management
+        # We use different States to change the LED color
         self.STATE_STOP = 1
         self.STATE_TRACING = 2
         self.STATE_RETURN = 3
@@ -34,28 +34,27 @@ class DPatternNode(DTROS):
 
         # Configuration for D pattern
         self.straight_speed = 0.65  # Base speed for straight lines
-        # Calibration factors for straight paths
-        self.straight_speed_left = 0.72  # Slightly faster left wheel
-        self.straight_speed_right = 0.69   # Base right wheel speed
+        # Calibration factors for straight paths. Left wheel is slightly faster than right wheel to account for drift
+        self.straight_speed_left = 0.72
+        self.straight_speed_right = 0.69
         
-        # Distances and durations
-        self.long_straight_distance = 2  # Length of the long straight line
-        self.vertical_distance = 1.5      # Length of vertical line
-        self.connecting_distance = 0.9    # Length of connecting straight line
+        self.long_straight_distance = 2
+        self.vertical_distance = 1.5  
+        self.connecting_distance = 0.9
         
-        # Turn and curve parameters
-        self.turn_duration = 0.45        # Duration for 90-degree turn
-        self.turn_speed = 0.5            # Base speed for turning
-        self.first_d_curve_duration = 2.4  # Time for first D curve
-        self.second_d_curve_duration = 2.6 # Time for second D curve
+        self.turn_duration = 0.45      # 90 degree turn
+        self.turn_speed = 0.5   
+
+        self.first_d_curve_duration = 2.4
+        self.second_d_curve_duration = 2.6
         
-        # Different wheel speeds for curved motion
-        self.curve_speed_outer = 0.7     # Outer wheel speed during curve
-        self.curve_speed_inner = 0.3     # Inner wheel speed during curve
+
+        self.curve_speed_outer = 0.7    
+        self.curve_speed_inner = 0.3  
         rospy.on_shutdown(self.on_shutdown)
 
     def set_state(self, state):
-        """Set the current state and update LED color."""
+        '''Set the LED color according to the curent state'''
         self.current_state = state
         color = {
             self.STATE_STOP: self.STOP_COLOR,
@@ -64,7 +63,6 @@ class DPatternNode(DTROS):
         }[state]
         
         try:
-            # Create and send LED service request
             req = SetLEDColorRequest()
             req.color = color
             response = self.led_service(req)
@@ -74,42 +72,43 @@ class DPatternNode(DTROS):
             rospy.logwarn(f"LED service call failed: {e}")
 
     def move(self, vel_left, vel_right, duration, movement_type):
-        """Execute a movement with specified wheel velocities for a given duration."""
+        '''Movr with specified wheel velocities for a given duration'''
         message = WheelsCmdStamped(vel_left=vel_left, vel_right=vel_right)
         start_time = time.time()
         
         while time.time() - start_time < duration and not rospy.is_shutdown():
             self._publisher.publish(message)
             time_elapsed = time.time() - start_time
-            rospy.loginfo(f"Executing {movement_type}: {(time_elapsed/duration*100):.1f}% complete")
+            rospy.loginfo(f"Moving {movement_type}: {(time_elapsed/duration*100):.1f}% complete")
             rospy.sleep(0.1)
         
         self.stop()
 
     def stop(self):
-        """Stop the Duckiebot."""
+        '''Stop the Duckiebot'''
         stop_message = WheelsCmdStamped(vel_left=0, vel_right=0)
         self._publisher.publish(stop_message)
         rospy.sleep(0.1)
 
     def on_shutdown(self):
-        """Cleanup function called on shutdown."""
+        '''Ensure proper shutdown'''
         if not hasattr(self, '_shutdown_executed'):
-            self._shutdown_executed = True  # Flag to prevent multiple executions
+            self._shutdown_executed = True
             
-            self.stop()  # Make sure robot stops
+            self.stop()
             
             # Send shutdown request to LED service node
             try:
                 rospy.loginfo("Sending shutdown request to LED service node...")
                 nodes = rosnode.get_node_names()
-                led_node = '/led_service_node'  # Corrected node name
+
+                led_node = '/led_service_node'
+
                 if led_node in nodes:
-                    # Set blue color one final time before shutdown
+                  
                     self.set_state(self.STATE_STOP)
-                    rospy.sleep(0.5)  # Give time for the LED command to process
-                    
-                    # Now kill the LED node
+                    rospy.sleep(0.5)
+       
                     rosnode.kill_nodes([led_node])
                     rospy.loginfo("LED service node shutdown request sent successfully")
                 else:
@@ -120,7 +119,8 @@ class DPatternNode(DTROS):
             rospy.loginfo("D pattern node shutdown cleanly")
 
     def execute_d_pattern(self):
-        """Execute the complete D pattern in the correct sequence."""
+        """Execute the complete D pattern path"""
+
         # Step 1: Initial longest straight line
         long_straight_duration = self.long_straight_distance / self.straight_speed
         self.move(self.straight_speed_left, self.straight_speed_right, 
@@ -159,14 +159,14 @@ class DPatternNode(DTROS):
                  vertical_duration, "final straight line")
         rospy.sleep(0.5)
 
-        # Step 2: 90-degree clockwise turn
+        # Step 8: 90-degree clockwise turn
         self.move(self.turn_speed, -self.turn_speed, 
                  self.turn_duration, "90-degree turn")
         rospy.sleep(0.5)
 
     def run(self):
-        """Main run function."""
-        rospy.sleep(1.0)  # Initial pause to ensure everything is ready
+        '''drive the duckiebot'''
+        rospy.sleep(1.0)
         
         # State 1: Initial stop
         self.set_state(self.STATE_STOP)

@@ -22,7 +22,7 @@ class WheelRotationNode(DTROS):
         start_time = time.time()
         while time.time() - start_time < duration and not rospy.is_shutdown():
             self._publisher.publish(message)
-            rospy.loginfo(f"Rotating {direction}: elapsed time {time.time() - start_time:.2f}/{duration:.2f} seconds")
+            rospy.loginfo(f"Rotation {direction}: elapsed time {time.time() - start_time:.2f}/{duration:.2f} seconds")
             rospy.sleep(0.1)
         self.stop()
 
