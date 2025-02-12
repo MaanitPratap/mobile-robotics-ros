@@ -14,20 +14,33 @@ This repository contains code and instructions for operating the Duckiebot DB21M
 - **Robot Name**: csc22905
 - **Architecture**: arm32v7
 
+Based on the file structure shown in your VS Code explorer, here's the accurate repository structure:
+
 ## Repository Structure
 
 ```
-.
 └── packages/
+    ├── led_service/
+    │   ├── scripts/
+    │   │   └── led_service_node.py
+    │   └── srv/
+    │       ├── SetLEDColor.srv
+    │       ├── CMakeLists.txt
+    │       └── package.xml
     └── my_package/
         ├── src/
         │   ├── wheel_d_node.py
         │   ├── wheel_control_node.py
-        │   └── wheel_rotation_node.py
-        └── scripts/
-            └── my_script.py
+        │   ├── wheel_rotation_node.py
+        │   ├── wheel_encoder_reader_node.py
+        │   ├── camera_reader_node.py
+        │   ├── my_publisher_node.py
+        │   ├── my_subscriber_node.py
+        │   ├── move-old.bag
+        │   └── trajectory.py
+        ├── CMakeLists.txt
+        └── package.xml
 ```
-
 ## Development Commands
 
 ### Build and Run Commands
