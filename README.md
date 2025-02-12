@@ -24,9 +24,9 @@ Based on the file structure shown in your VS Code explorer, here's the accurate 
     │   ├── scripts/
     │   │   └── led_service_node.py
     │   └── srv/
-    │       ├── SetLEDColor.srv
-    │       ├── CMakeLists.txt
-    │       └── package.xml
+    │       └── SetLEDColor.srv
+    │   ├── CMakeLists.txt
+    │   └── package.xml
     └── my_package/
         ├── src/
         │   ├── wheel_d_node.py
