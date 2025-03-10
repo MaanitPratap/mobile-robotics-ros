@@ -44,7 +44,7 @@ class LaneDetectionNode(DTROS):
         
         # Publisher for undistorted image
         self.undistorted_pub = rospy.Publisher('~undistorted_image/compressed', CompressedImage, queue_size=1)
-        
+        self.lane_pub = rospy.Publisher('lane_detections', String, queue_size=1)
         # Flag to save calibration images once
         self.saved_calibration_images = False
         
@@ -171,8 +171,8 @@ class LaneDetectionNode(DTROS):
             "blue": cv2.inRange(hsv_image, self.lower_blue, self.upper_blue),
             "red": cv2.inRange(hsv_image, self.lower_red, self.upper_red),
             "green": cv2.inRange(hsv_image, self.lower_green, self.upper_green),
-            # "yellow": cv2.inRange(hsv_image, self.lower_yellow, self.upper_yellow),
-            # "white": cv2.inRange(hsv_image, self.lower_white, self.upper_white)
+            "yellow": cv2.inRange(hsv_image, self.lower_yellow, self.upper_yellow),
+            "white": cv2.inRange(hsv_image, self.lower_white, self.upper_white)
         }
         return masks
     
@@ -192,6 +192,7 @@ class LaneDetectionNode(DTROS):
             "white": (255, 255, 255)
         }
         detected_colors = []
+        lane_distances = {}  # Dictionary to store distances for each color
 
         for color_name, mask in masks.items():
             masked_color = cv2.bitwise_and(image, image, mask=mask)
@@ -206,13 +207,14 @@ class LaneDetectionNode(DTROS):
                     lane_start = self.calculate_lane_dimension(x, y)
                     lane_end = self.calculate_lane_dimension(x + w, y)
                     lane_length = abs(lane_end[0] - lane_start[0]) * 100
+                    # In detect_lane method, simplify distance storage:
+                    if color_name not in lane_distances or lane_length < lane_distances[color_name]:
+                        lane_distances[color_name] = lane_length
                     cv2.putText(image, f"{lane_length:.2f} cm", (x, y + h + 20), cv2.FONT_HERSHEY_PLAIN, 1, colors[color_name])
                     detected_colors.append(color_name)
-        return image, detected_colors
+        return image, detected_colors, lane_distances
     
     def callback(self, msg):
-        # add your code here
-
         # Convert compressed image to CV2
         np_arr = np.frombuffer(msg.data, np.uint8)
         cv_image = cv2.imdecode(np_arr, cv2.IMREAD_COLOR)
@@ -225,32 +227,33 @@ class LaneDetectionNode(DTROS):
         # Undistort image
         undistorted = self.undistort_image(cv_image)
         
-        # 2: Preprocess the undistorted image (resize and blur)
+        # Preprocess the undistorted image (resize and blur)
         processed = self.preprocess_image(undistorted)
-    
-        # # Publish undistorted image
-        # undistorted_msg = self.bridge.cv2_to_compressed_imgmsg(processed)
-        # self.undistorted_pub.publish(undistorted_msg)
-        
-        # detect lanes - 2.1 
 
         # Detect lanes and colors
         masks = self.detect_lane_color(processed)
-        lane_detected_image, detected_colors = self.detect_lane(processed.copy(), masks)
-    
-    
+        lane_detected_image, detected_colors, lane_distances = self.detect_lane(processed.copy(), masks)
+
         # Publish processed image
         self.undistorted_pub.publish(self.bridge.cv2_to_compressed_imgmsg(lane_detected_image))
-    
-    
-        # Publish lane detection results (color)
+
+        # Publish lane detection results (color and distance)
+        lane_msg = ""
+        if "yellow" in detected_colors or "white" in detected_colors:
+            if "yellow" in detected_colors:
+                yellow_length = lane_distances.get("yellow", 0)
+                lane_msg += f"yellow_lane:{yellow_length:.2f},"
+            if "white" in detected_colors:
+                white_length = lane_distances.get("white", 0) 
+                lane_msg += f"white_lane:{white_length:.2f}"
+            self.lane_pub.publish(lane_msg)
+        
+        # Handle other color detections for LED service
         if detected_colors:
-            detected_color = detected_colors[0]  # Publish the first detected color
-    
+            detected_color = detected_colors[0]  # Use the first detected color
             if detected_color != self.last_color:
                 if self.lane_behavior_service is not None:
                     self.lane_behavior_service(detected_color)
-                # self.color_pub.publish(detected_color)
                 self.last_color = detected_color
                 rospy.loginfo(f"Detected lane color: {detected_color}")
                     
@@ -263,16 +266,10 @@ class LaneDetectionNode(DTROS):
             if self.last_color != "None":
                 if self.lane_behavior_service is not None:
                     self.lane_behavior_service("None")
-                # self.color_pub.publish("None")
                 self.last_color = "None"
                 rospy.loginfo(f"No color detected")
-        
-        # control LEDs based on detected colors
-
-        # anything else you want to add here
-    
-
-    # add other functions as needed
+                # Also publish empty lane message
+                self.lane_pub.publish("")
 
 if __name__ == '__main__':
     node = LaneDetectionNode(node_name='lane_detection_node')
