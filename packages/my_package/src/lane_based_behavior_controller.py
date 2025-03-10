@@ -218,12 +218,13 @@ class BehaviorController(DTROS):
         """
         self.is_executing = True
         rospy.loginfo("Executing blue line behavior")
+
+        self.move_straight(0.20)
+
+        self.stop(duration=4)
         
         # Set right side LEDs to blue
         self.set_led_pattern("blue")  # Using the enhanced LED service for right signaling
-        
-        # Stop for 3-5 seconds
-        self.stop(duration=4)
         
         # Turn right 90 degrees
         self.turn_right()
@@ -243,8 +244,9 @@ class BehaviorController(DTROS):
         self.is_executing = True
         rospy.loginfo("Executing red line behavior")
         
+        self.move_straight(0.2)
         # Set LEDs to red
-        self.set_led_pattern("red")
+        self.set_led_pattern("off")
         
         # Stop for 3-5 seconds
         self.stop(duration=4)
@@ -266,12 +268,15 @@ class BehaviorController(DTROS):
         """
         self.is_executing = True
         rospy.loginfo("Executing green line behavior")
+
+        self.move_straight(0.2)
+        
+        self.stop(duration=4)
         
         # Set left side LEDs to green
         self.set_led_pattern("green")  # Using the enhanced LED service for left signaling
         
         # Stop for 3-5 seconds
-        self.stop(duration=4)
         
         # Turn left 90 degrees
         self.turn_left()
