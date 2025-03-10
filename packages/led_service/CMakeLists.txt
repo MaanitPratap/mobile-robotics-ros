@@ -12,6 +12,7 @@ find_package(catkin REQUIRED COMPONENTS
 add_service_files(
   FILES
   SetLEDColor.srv
+  LaneDetect.srv
 )
 
 generate_messages(
