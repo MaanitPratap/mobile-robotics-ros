@@ -48,10 +48,13 @@ Based on the file structure shown in your VS Code explorer, here's the accurate 
 
 ```
 ## Code for exercise 3 is in branch exercise 3 
- #  lane_detection_node.py  has the code for question - 1.1 - 1.4 and 2.1 of exercise 3 
- #  lane_based_behavior_controller.py has the code for question 1.6 of exercise 3 
- #  lane_controller_node.py has the code for question 2.2 
- #  lane_following_node.py has the code for question 3 
+``` bash
+    lane_detection_node.py  has the code for question - 1.1 - 1.4 and 2.1 of exercise 3 
+    lane_based_behavior_controller.py has the code for question 1.6 of exercise 3 
+    lane_controller_node.py has the code for question 2.2 
+    lane_following_node.py has the code for question 3
+```
+    
 ## Development Commands
 
 ### Build and Run Commands
