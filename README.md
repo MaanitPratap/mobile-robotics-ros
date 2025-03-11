@@ -2,6 +2,7 @@
 # Duckiebot Repository (CSC22905)
 
 This repository contains code and instructions for operating the Duckiebot DB21M robot named `csc22905`. The code includes implementations for various wheel control patterns and ROS-based operations.
+## The code for exercise 3 is in branch exercise 3 
 
 ## Course Information
 
