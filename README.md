@@ -18,7 +18,7 @@ This repository contains code and instructions for operating the Duckiebot DB21M
 Based on the file structure shown in your VS Code explorer, here's the accurate repository structure:
 
 ## Repository Structure
-
+## Code for Exercise 3 is in branch exercise 3 
 ```
 └── packages/
     ├── led_service/
@@ -38,10 +38,20 @@ Based on the file structure shown in your VS Code explorer, here's the accurate 
         │   ├── my_publisher_node.py
         │   ├── my_subscriber_node.py
         │   ├── move-old.bag
-        │   └── trajectory.py
+        │   ├── trajectory.py
+        │   ├── lane_based_behavior_controller.py
+        │   ├── lane_controller_node.py
+        │   ├── lane_detection_node.py
+        │   └── lane_following_node.py
         ├── CMakeLists.txt
         └── package.xml
+
 ```
+## Code for exercise 3 is in branch exercise 3 
+ #  lane_detection_node.py  has the code for question - 1.1 - 1.4 and 2.1 of exercise 3 
+ #  lane_based_behavior_controller.py has the code for question 1.6 of exercise 3 
+ #  lane_controller_node.py has the code for question 2.2 
+ #  lane_following_node.py has the code for question 3 
 ## Development Commands
 
 ### Build and Run Commands
@@ -56,9 +66,13 @@ chmod +x ./packages/my_package/src/wheel_d_node.py
 mkdir -p ./packages/my_package
 
 # Run wheel control nodes
-dts devel run -R csc22905 -L wheel-rotate    # Rotation control
-dts devel run -R csc22905 -L wheel-d         # D-pattern movement
-dts devel run -R csc22905 -L wheel-control   # General wheel control
+dts devel run -R csc22905 -L wheel-rotate                     # Rotation control
+dts devel run -R csc22905 -L wheel-d                          # D-pattern movement
+dts devel run -R csc22905 -L wheel-control                    # General wheel control
+dts devel run -R csc22905 -L lane_based_behavior_controller   # Demonstrate color based behaviour
+dts devel run -R csc22905 -L lane_controller_node             # For using different types of Controllers like P, PD, PID
+dts devel run -R csc22905 -L lane_detection_node              # For lane detection, colour detection and image undistortion
+dts devel run -R csc22905 -L lane_following_node              # For lane following demo 
 ```
 
 ### Discovery and Connection
