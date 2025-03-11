@@ -15,13 +15,11 @@ class LaneControllerNode(DTROS):
     def __init__(self, node_name):
         super(LaneControllerNode, self).__init__(node_name=node_name, node_type=NodeType.CONTROL)
         
-        # Get vehicle name
+     
         self.vehicle_name = os.environ['VEHICLE_NAME']
-        
-        # Create CV bridge
+
         self.bridge = CvBridge()
         
-        # Controller type
         self.controller_type = 'PD'
         
         # PID gains (tune these values)
@@ -34,7 +32,6 @@ class LaneControllerNode(DTROS):
         self.integral = 0.0
         self.last_time = rospy.get_time()
         
-        # Movement parameters
         self.base_speed = 0.3
         self.min_speed = 0.1
         self.max_speed = 0.5
@@ -48,14 +45,12 @@ class LaneControllerNode(DTROS):
         self.dist_coeffs = None
         self.has_camera_info = False
         
-        
-        # Color detection parameters (HSV)
+
         self.lower_yellow = np.array([20, 100, 100])
         self.upper_yellow = np.array([30, 255, 255])
         self.lower_white = np.array([0, 0, 220])
         self.upper_white = np.array([255, 35, 255])
 
-        # Initialize publishers/subscribers
         self.wheel_pub = rospy.Publisher(
             f'/{self.vehicle_name}/wheels_driver_node/wheels_cmd',
             WheelsCmdStamped,
