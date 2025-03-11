@@ -1,47 +1,179 @@
-# Template: template-ros
 
-This template provides a boilerplate repository
-for developing ROS-based software in Duckietown.
+# Duckiebot Repository (CSC22905)
 
-**NOTE:** If you want to develop software that does not use
-ROS, check out [this template](https://github.com/duckietown/template-basic).
+This repository contains code and instructions for operating the Duckiebot DB21M robot named `csc22905`. The code includes implementations for various wheel control patterns and ROS-based operations.
+## The code for exercise 3 is in branch exercise 3 
 
+## Course Information
 
-## How to use it
+- **Course Website**: [Course Link](https://sites.google.com/ualberta.ca/maanitpratap/home)
+- **Robot Dashboard**: csc22905.local
 
-### 1. Fork this repository
+## Robot Specifications
 
-Use the fork button in the top-right corner of the github page to fork this template repository.
+- **Model**: Duckiebot DB21M
+- **Robot Name**: csc22905
+- **Architecture**: arm32v7
 
+Based on the file structure shown in your VS Code explorer, here's the accurate repository structure:
 
-### 2. Create a new repository
+## Repository Structure
+## Code for Exercise 3 is in branch exercise 3 
+```
+└── packages/
+    ├── led_service/
+    │   ├── scripts/
+    │   │   └── led_service_node.py
+    │   └── srv/
+    │       └── SetLEDColor.srv
+    │   ├── CMakeLists.txt
+    │   └── package.xml
+    └── my_package/
+        ├── src/
+        │   ├── wheel_d_node.py
+        │   ├── wheel_control_node.py
+        │   ├── wheel_rotation_node.py
+        │   ├── wheel_encoder_reader_node.py
+        │   ├── camera_reader_node.py
+        │   ├── my_publisher_node.py
+        │   ├── my_subscriber_node.py
+        │   ├── move-old.bag
+        │   ├── trajectory.py
+        │   ├── lane_based_behavior_controller.py
+        │   ├── lane_controller_node.py
+        │   ├── lane_detection_node.py
+        │   └── lane_following_node.py
+        ├── CMakeLists.txt
+        └── package.xml
 
-Create a new repository on github.com while
-specifying the newly forked template repository as
-a template for your new repository.
+```
+## Code for exercise 3 is in branch exercise 3 
+ #  lane_detection_node.py  has the code for question - 1.1 - 1.4 and 2.1 of exercise 3 
+ #  lane_based_behavior_controller.py has the code for question 1.6 of exercise 3 
+ #  lane_controller_node.py has the code for question 2.2 
+ #  lane_following_node.py has the code for question 3 
+## Development Commands
 
+### Build and Run Commands
+```bash
+# Build the package
+dts devel build -f
 
-### 3. Define dependencies
+# Make Python scripts executable
+chmod +x ./packages/my_package/src/wheel_d_node.py
 
-List the dependencies in the files `dependencies-apt.txt` and
-`dependencies-py3.txt` (apt packages and pip packages respectively).
+# Create package directory
+mkdir -p ./packages/my_package
 
+# Run wheel control nodes
+dts devel run -R csc22905 -L wheel-rotate                     # Rotation control
+dts devel run -R csc22905 -L wheel-d                          # D-pattern movement
+dts devel run -R csc22905 -L wheel-control                    # General wheel control
+dts devel run -R csc22905 -L lane_based_behavior_controller   # Demonstrate color based behaviour
+dts devel run -R csc22905 -L lane_controller_node             # For using different types of Controllers like P, PD, PID
+dts devel run -R csc22905 -L lane_detection_node              # For lane detection, colour detection and image undistortion
+dts devel run -R csc22905 -L lane_following_node              # For lane following demo 
+```
 
-### 4. Place your code
+### Discovery and Connection
+```bash
+# Discover active Duckiebots
+dts fleet discover
 
-Place your code in the directory `/packages/` of
-your new repository.
+# Check connection
+ping csc22905.local
+```
 
+### Robot Control
+```bash
+# Keyboard control
+dts duckiebot keyboard_control csc22905
 
-### 5. Setup launchers
+# Shutdown robot
+dts duckiebot shutdown csc22905.local
+```
 
-The directory `/launchers` can contain as many launchers (launching scripts)
-as you want. A default launcher called `default.sh` must always be present.
+### Calibration Commands
+```bash
+# Camera intrinsics calibration
+dts duckiebot calibrate_intrinsics csc22905
 
-If you create an executable script (i.e., a file with a valid shebang statement)
-a launcher will be created for it. For example, the script file 
-`/launchers/my-launcher.sh` will be available inside the Docker image as the binary
-`dt-launcher-my-launcher`.
+# Camera extrinsics calibration
+dts duckiebot calibrate_extrinsics csc22905
+```
 
-When launching a new container, you can simply provide `dt-launcher-my-launcher` as
-command.
+### Development Tools
+```bash
+# Start GUI tools
+dts start_gui_tools csc22905
+
+# Build locally
+dts devel build -f
+
+# Build for ARM architecture
+dts devel build -f --arch arm32v7 -H csc22905.local
+```
+
+## Running Demos
+
+### Lane Following Demo
+```bash
+dts duckiebot demo --demo_name lane_following --duckiebot_name csc22905 --package_name duckietown_demos
+```
+
+**Controls:**
+- Press 'a': Start demo
+- Press 's': Stop demo
+
+## Docker Operations
+
+### Running Mobile Robotics Container
+```bash
+docker -H csc22905.local run -it --rm --net=host duckietown/mobile-robotics:v3-arm32v7
+```
+
+## Getting Started
+
+1. **Network Connection**
+   - Connect to Duckienet WiFi
+   - Verify connection: `ping csc22905.local`
+
+2. **Initial Setup**
+   - Create package directory
+   - Make scripts executable
+   - Build the package
+
+3. **Running Nodes**
+   - Choose appropriate run command based on desired operation
+   - Monitor robot behavior
+   - Use keyboard controls when available
+
+4. **Calibration**
+   - Perform camera calibrations if needed
+   - Set trim parameters as required
+
+## Exercise Files
+
+- **Wheel Control Nodes**: `packages/my_package/src/`
+
+## Support and Documentation
+
+- **Hardware Issues**: [DB21M Manual](https://docs.duckietown.com/daffy/opmanual-duckiebot/intro.html)
+- **Software Support**: [Duckietown Documentation](https://docs.duckietown.com/daffy/)
+- **Duckietown Developer Manual**: [Duckietown Developer Manual](https://docs.duckietown.com/daffy/devmanual-software/intro.html)
+
+## Common Issues and Solutions
+
+1. **Permission Denied**
+   - Run `chmod +x` on Python scripts
+   - Ensure proper file ownership
+
+2. **Build Failures**
+   - Check network connection
+   - Verify architecture settings
+   - Clean build directory and retry
+
+3. **Connection Issues**
+   - Confirm Duckienet WiFi connection
+   - Verify robot IP address
+   - Check robot power status
