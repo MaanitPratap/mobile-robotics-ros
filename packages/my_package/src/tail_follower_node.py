@@ -144,6 +144,8 @@ class LaneFollowWithDetectionNode(DTROS):
         self.turn_duration = 1.5  # How long to execute the turn (seconds)
         self.left_turn_omega = 3  # Angular velocity for left turn
         self.right_turn_omega = -2.5 # Angular velocity for right turn
+
+        self.first_turn_direction = None
         
         # Dot pattern detection parameters
         self.min_dot_area = 20  # Minimum area of a dot to be detected
@@ -713,9 +715,44 @@ class LaneFollowWithDetectionNode(DTROS):
             # Make decision based on majority
             if left_votes > right_votes:
                 rospy.loginfo("Blue detected on LEFT side! Turning LEFT.")
+                self.first_turn_direction = "left"
                 self.turn_left()
             else:
                 rospy.loginfo("Blue detected on RIGHT side or no blue detected! Turning RIGHT.")
+                self.first_turn_direction = "right"
+                self.turn_right()
+
+        elif self.red_line_count == 2:
+            rospy.loginfo("Second red line detected. Moving straight for 2 seconds...")
+            
+            # Temporarily disable lane following
+            saved_proportional = self.proportional
+            self.proportional = None
+            
+            # Set command for moving straight
+            straight_cmd = Twist2DStamped()
+            straight_cmd.v = 0.3  # Forward velocity
+            straight_cmd.omega = -0.5  # No turning
+            
+            # Move straight for 2 seconds
+            straight_duration = 4.0
+            start_time = rospy.get_time()
+            while rospy.get_time() - start_time < straight_duration:
+                self.vel_pub.publish(straight_cmd)
+                rospy.sleep(0.05)
+            
+            # Restore lane following
+            self.proportional = saved_proportional
+            rospy.loginfo("Straight movement completed, resuming lane following")
+        elif self.red_line_count == 3:
+            rospy.loginfo("Third red line detected. Making opposite turn from first red line...")
+            
+            # Make the opposite turn from what was done at the first red line
+            if self.first_turn_direction == "right":
+                rospy.loginfo("First turn was RIGHT, now turning LEFT")
+                self.turn_left()
+            else:
+                rospy.loginfo("First turn was LEFT, now turning RIGHT")
                 self.turn_right()
         else:
             # For other red lines, just wait
@@ -727,12 +764,6 @@ class LaneFollowWithDetectionNode(DTROS):
                 rospy.sleep(0.1)
         
         rospy.loginfo("Resuming after red line stop")
-        
-        # Return to previous LED state
-        if self.was_following:
-            self.set_led_color("following")
-        else:
-            self.set_led_color("searching")
 
     def stop(self, duration):
         """Stop the robot for a given duration"""
