@@ -26,7 +26,10 @@ class LEDServiceNode(DTROS):
             'green':  {'name': 'green',  'rgb': ColorRGBA(r=0.0, g=1.0, b=0.0, a=1.0)},
             'blue':   {'name': 'blue',   'rgb': ColorRGBA(r=0.0, g=0.0, b=1.0, a=1.0)},
             'white':  {'name': 'white',  'rgb': ColorRGBA(r=1.0, g=1.0, b=1.0, a=1.0)},
-            'yellow': {'name': 'yellow', 'rgb': ColorRGBA(r=1.0, g=1.0, b=0.0, a=1.0)}
+            'yellow': {'name': 'yellow', 'rgb': ColorRGBA(r=1.0, g=1.0, b=0.0, a=1.0)},
+            'purple': {'name': 'purple', 'rgb': ColorRGBA(r=0.5, g=0.0, b=0.5, a=1.0)},
+            'cyan':   {'name': 'cyan',   'rgb': ColorRGBA(r=0.0, g=1.0, b=1.0, a=1.0)},
+            'orange': {'name': 'orange', 'rgb': ColorRGBA(r=1.0, g=0.5, b=0.0, a=1.0)}
         }
         
         # LED indices - Duckiebot has 5 LEDs:
@@ -46,10 +49,16 @@ class LEDServiceNode(DTROS):
             'red': self._create_all_pattern('red'),
             'green': self._create_all_pattern('green'),
             'blue': self._create_all_pattern('blue'),
+            'white': self._create_all_pattern('white'),
+            'yellow': self._create_all_pattern('yellow'),
+            'purple': self._create_all_pattern('purple'),
+            'cyan': self._create_all_pattern('cyan'),
+            'orange': self._create_all_pattern('orange'),
             
             # Special patterns for specific behaviors
-            'right_signal': self._create_side_pattern('blue', 'right'),  # For blue line
-            'left_signal': self._create_side_pattern('green', 'left')    # For green line
+            'following': self._create_special_pattern('yellow', 'following'),
+            'searching': self._create_special_pattern('green', 'searching'),
+            'warning': self._create_special_pattern('red', 'warning')
         }
         
         self.srv = rospy.Service('set_led_color', SetLEDColor, self.handle_set_led_color)
@@ -70,69 +79,59 @@ class LEDServiceNode(DTROS):
         pattern.frequency_mask = [0] * 5  # No blinking
         pattern.color_mask = [1] * 5      # All LEDs on
         return pattern
-        
-    def _create_side_pattern(self, color_name, side):
-        """Create a pattern with only left or right side LEDs lit"""
+    
+    def _create_special_pattern(self, color_name, pattern_type):
+        """Create special patterns for specific behaviors"""
         if color_name not in self.colors:
             rospy.logwarn(f"Color {color_name} not defined, using 'white'")
             color_name = 'white'
             
         color_data = self.colors[color_name]
-        off_data = self.colors['off']
         
         pattern = LEDPattern()
-        # Default all LEDs to off
-        pattern.color_list = [off_data['name']] * 5
-        pattern.rgb_vals = [off_data['rgb']] * 5
-        pattern.frequency = 0.0
-        pattern.frequency_mask = [0] * 5  # No blinking
-        pattern.color_mask = [1] * 5      # All LEDs considered
         
-        # Set specific LEDs based on side
-        if side == 'right':
-            # Set front-right and back-right LEDs
-            idx_front = self.led_indices['front_right']
-            idx_back = self.led_indices['back_right']
-            pattern.color_list[idx_front] = color_data['name']
-            pattern.color_list[idx_back] = color_data['name']
-            pattern.rgb_vals[idx_front] = color_data['rgb']
-            pattern.rgb_vals[idx_back] = color_data['rgb']
-        elif side == 'left':
-            # Set front-left and back-left LEDs
-            idx_front = self.led_indices['front_left']
-            idx_back = self.led_indices['back_left']
-            pattern.color_list[idx_front] = color_data['name']
-            pattern.color_list[idx_back] = color_data['name']
-            pattern.rgb_vals[idx_front] = color_data['rgb']
-            pattern.rgb_vals[idx_back] = color_data['rgb']
-        
+        if pattern_type == 'following':
+            # Following pattern: all LEDs yellow, with front ones blinking
+            pattern.color_list = [color_data['name']] * 5
+            pattern.rgb_vals = [color_data['rgb']] * 5
+            pattern.frequency = 2.0  # 2 Hz blinking
+            # Only front LEDs blink
+            pattern.frequency_mask = [1, 0, 0, 0, 1]  # Front LEDs blink
+            pattern.color_mask = [1] * 5  # All LEDs on
+            
+        elif pattern_type == 'searching':
+            # Searching pattern: green with center LED blinking
+            pattern.color_list = [color_data['name']] * 5
+            pattern.rgb_vals = [color_data['rgb']] * 5
+            pattern.frequency = 1.0  # 1 Hz blinking
+            # Only center LED blinks
+            pattern.frequency_mask = [0, 0, 1, 0, 0]  # Center LED blinks
+            pattern.color_mask = [1] * 5  # All LEDs on
+            
+        elif pattern_type == 'warning':
+            # Warning pattern: all red LEDs blinking
+            pattern.color_list = [color_data['name']] * 5
+            pattern.rgb_vals = [color_data['rgb']] * 5
+            pattern.frequency = 4.0  # 4 Hz blinking (faster for warning)
+            pattern.frequency_mask = [1] * 5  # All LEDs blink
+            pattern.color_mask = [1] * 5  # All LEDs on
+            
+        else:
+            # Default to all color without blinking
+            return self._create_all_pattern(color_name)
+            
         return pattern
 
     def handle_set_led_color(self, req):
         """Handle SetLEDColor service requests"""
         pattern = None
         
-        # Check if the requested color matches a standard pattern
+        # Check if the requested color matches a pattern
         if req.color in self.patterns:
-            if req.color == 'blue':
-                pattern = self.patterns['right_signal']
-                rospy.loginfo("Using right signal pattern for blue line")
-            # For green line, use left side signal pattern
-            elif req.color == 'green':
-                pattern = self.patterns['left_signal']
-                rospy.loginfo("Using left signal pattern for green line")
-            # For any other color request, use the all pattern if color exists
-            elif req.color in self.colors:
-                pattern = self._create_all_pattern(req.color)
-                rospy.loginfo(f"Using all pattern for {req.color}")
-            else:  
-                pattern = self.patterns[req.color]
-                rospy.loginfo(f"Using standard pattern for {req.color}")
-        # For blue line, use right side signal pattern
-
-        # Default fallback
+            pattern = self.patterns[req.color]
+            rospy.loginfo(f"Using pattern for {req.color}")
         else:
-            rospy.logwarn(f"Requested color {req.color} not found. Using 'off'")
+            rospy.logwarn(f"Requested color/pattern {req.color} not found. Using 'off'")
             pattern = self.patterns['off']
    
         try:
