@@ -10,6 +10,7 @@ from turbojpeg import TurboJPEG
 import cv2
 import numpy as np
 from duckietown_msgs.msg import WheelsCmdStamped, Twist2DStamped
+from dt_apriltags import Detector
 
 from led_service.srv import SetLEDColor, SetLEDColorRequest
 
@@ -83,7 +84,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # PID Variables for lane following
         self.proportional = None
         if ENGLISH:
-            self.offset = 220
+            self.offset = 210
         else:
             self.offset = 220
         if AUSSIE:
@@ -150,6 +151,22 @@ class LaneFollowWithDetectionNode(DTROS):
         # Dot pattern detection parameters
         self.min_dot_area = 20  # Minimum area of a dot to be detected
         self.min_pattern_dots = 5  # Minimum number of dots to consider a valid pattern
+
+
+        # April Tag detection parameters
+        self.tag_detector = Detector(families='tag36h11',
+                                nthreads=1,
+                                quad_decimate=1.0,
+                                quad_sigma=0.0,
+                                refine_edges=1,
+                                decode_sharpening=0.25,
+                                debug=0)
+        
+        self.detect_april_tags = False  # Flag to enable/disable April Tag detection
+        self.camera_params = [305.57, 308.83, 303.02, 231.14]  # fx, fy, cx, cy - calibrate these for your camera
+        self.tag_size = 0.065  # Tag size in meters
+
+        self.detected_tag = 0  # Store the detected April Tag ID
         
         # Wait a little while before sending motor commands
         rospy.Rate(0.20).sleep()
@@ -186,9 +203,10 @@ class LaneFollowWithDetectionNode(DTROS):
             self.obj_stop = True
 
     def callback(self, msg):
-        """Main image processing callback - handles lane following, duckiebot detection, and red line detection"""
+        """Main image processing callback - handles lane following, duckiebot detection, red line detection, and april tag detection"""
         img = self.jpeg.decode(msg.data)
         self.last_image = img.copy()
+        
         # Process lane following
         self.process_lane_following(img)
         
@@ -199,7 +217,42 @@ class LaneFollowWithDetectionNode(DTROS):
         if not self.at_red_line and self.red_line_cooldown <= 0:  # Only check if not already at a red line
             self.process_red_line_detection(img)
         
+        # Process blue detection
         self.detect_blue(img)
+        
+        # Process April Tag detection if enabled
+        if self.detect_april_tags:
+            tag_id, _ = self.detect_april_tag(img)
+            if tag_id is not None:
+                rospy.loginfo(f"April Tag detected while driving: {tag_id}")
+                self.detected_tag = tag_id
+                self.detect_april_tags = False
+                
+                # # Handle detected April tags before reaching the fourth stop line
+                # if self.red_line_count == 3:
+                #     # Stop the robot
+                #     self.twist.v = 0
+                #     self.twist.omega = 0
+                #     self.vel_pub.publish(self.twist)
+                # #     rospy.sleep(0.5)  # Brief pause
+                    
+                # if tag_id == "59":  # Tag 48
+                #     rospy.loginfo("Tag 59 detected! Turning LEFT.")
+                #     # self.turn_left()
+                #     self.detected_tag = 59
+                #     # Disable April tag detection after handling
+                #     self.detect_april_tags = False
+                #     # Set cooldown to avoid detecting stop line immediately after turn
+                #     # self.red_line_cooldown = self.red_line_cooldown_time / 2
+                    
+                # elif tag_id == "113":  # Tag 50
+                #     rospy.loginfo("Tag 113 detected! Turning RIGHT.")
+                #     # self.turn_right()
+                #     self.detected_tag = 113
+                #     # Disable April tag detection after handling
+                #     self.detect_april_tags = False
+                #     # Set cooldown to avoid detecting stop line immediately after turn
+                #     # self.red_line_cooldown = self.red_line_cooldown_time / 2
 
     def detect_blue(self, img):
         """Detect if blue is on left or right side of frame"""
@@ -271,7 +324,7 @@ class LaneFollowWithDetectionNode(DTROS):
         
         # Use higher forward velocity and moderate turning to create a larger curve
         turn_cmd.v = 0.35  # Higher forward velocity for a wider curve
-        turn_cmd.omega = 2.0  # Moderate but consistent turning rate
+        turn_cmd.omega = 1.5 # Moderate but consistent turning rate
         
         # Execute the turn for longer duration to complete the curve
         turn_duration = 2.5  # Longer duration for a bigger curve
@@ -306,11 +359,11 @@ class LaneFollowWithDetectionNode(DTROS):
         turn_cmd = Twist2DStamped()
         
         # Less forward velocity and stronger turning for a tighter curve
-        turn_cmd.v = 0.25  # Lower forward velocity for a tighter turn
-        turn_cmd.omega = -3.0  # Stronger turning rate for a sharper curve
+        turn_cmd.v = 0.3  # Lower forward velocity for a tighter turn
+        turn_cmd.omega = -5.5  # Stronger turning rate for a sharper curve
         
         # Execute the turn for a shorter duration
-        turn_duration = 1.8  # Shorter duration for a sharper curve
+        turn_duration = 1.5  # Shorter duration for a sharper curve
         
         start_time = rospy.get_time()
         while rospy.get_time() - start_time < turn_duration:
@@ -321,6 +374,51 @@ class LaneFollowWithDetectionNode(DTROS):
         self.proportional = saved_proportional
         
         rospy.loginfo("Right curve turn completed")
+
+    def detect_april_tag(self, img):
+        """Detect April tags in the image"""
+        if not self.detect_april_tags:
+            return None, None
+            
+        # Convert to grayscale for April Tag detection
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        
+        # Detect April tags
+        tags = self.tag_detector.detect(gray, estimate_tag_pose=False, 
+                                    camera_params=self.camera_params, 
+                                    tag_size=self.tag_size)
+        
+        # Create debug image
+        debug_img = img.copy()
+        
+        tag_id = None
+        if len(tags) > 0:
+            # Get the tag with highest decision margin (confidence)
+            best_tag = max(tags, key=lambda x: x.decision_margin)
+            tag_id = best_tag.tag_id
+            
+            # Draw tag outline
+            for idx in range(4):
+                cv2.line(debug_img, 
+                        tuple(best_tag.corners[idx-1, :].astype(int)), 
+                        tuple(best_tag.corners[idx, :].astype(int)),
+                        (0, 255, 0), 2)
+            
+            # Put tag ID on image
+            center = best_tag.center.astype(int)
+            cv2.putText(debug_img, f"Tag ID: {tag_id}", (center[0], center[1]+20), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                    
+            rospy.loginfo(f"Detected April Tag ID: {tag_id}")
+        else:
+            cv2.putText(debug_img, "No April Tag detected", (10, 30), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+        
+        # Publish debug image
+        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        self.pub_debug_img.publish(debug_msg)
+        
+        return tag_id, debug_img
 
     def process_lane_following(self, img):
         """Process the image for lane following"""
@@ -354,7 +452,8 @@ class LaneFollowWithDetectionNode(DTROS):
             except:
                 pass
         else:
-            # Define white color range
+
+
             WHITE_MASK = [(0, 0, 180), (180, 30, 255)]
             white_mask = cv2.inRange(hsv, WHITE_MASK[0], WHITE_MASK[1])
             crop = cv2.bitwise_and(crop, crop, mask=white_mask)
@@ -381,6 +480,14 @@ class LaneFollowWithDetectionNode(DTROS):
                         cv2.circle(crop, (cx, cy), 7, (255, 0, 0), -1)
                 except:
                     pass
+            else:
+                # Define white color range
+                turn_cmd = Twist2DStamped()
+            
+                # Less forward velocity and stronger turning for a tighter curve
+                turn_cmd.v = 0.3  # Lower forward velocity for a tighter turn
+                turn_cmd.omega = 2  # Stronger turning rate for a sharper curve
+
         
         # Publish debug image if needed
         if DEBUG:
@@ -617,6 +724,9 @@ class LaneFollowWithDetectionNode(DTROS):
             
             # Set cooldown to avoid detecting the same line multiple times
             self.red_line_cooldown = self.red_line_cooldown_time
+
+            if self.red_line_count >= 3:
+                self.red_line_cooldown = self.red_line_cooldown_time / 3
             
             # Reset flag after handling
             self.red_line_detected = False
@@ -732,7 +842,7 @@ class LaneFollowWithDetectionNode(DTROS):
             # Set command for moving straight
             straight_cmd = Twist2DStamped()
             straight_cmd.v = 0.3  # Forward velocity
-            straight_cmd.omega = -0.5  # No turning
+            straight_cmd.omega = -1  # No turning
             
             # Move straight for 2 seconds
             straight_duration = 4.0
@@ -754,6 +864,83 @@ class LaneFollowWithDetectionNode(DTROS):
             else:
                 rospy.loginfo("First turn was LEFT, now turning RIGHT")
                 self.turn_right()
+            self.red_line_cooldown = self.red_line_cooldown_time / 3
+            rospy.loginfo(f"Reduced cooldown time to {self.red_line_cooldown} seconds for faster fourth line detection")
+        
+            # Enable April tag detection after the third red line
+            self.detect_april_tags = True
+            rospy.loginfo("April Tag detection enabled for next red line")
+
+
+        elif self.red_line_count == 4:
+            rospy.loginfo("Fourth red line detected. Looking for April Tag...")
+            rospy.loginfo(type(self.detected_tag))
+            # Make the opposite turn from what was done at the first red line
+            if self.detected_tag == 48:  # Tag 48
+                rospy.loginfo("Tag 48 detected! Turning LEFT.")
+                self.turn_left()
+                self.detect_april_tags = True
+            elif self.detected_tag == 50:
+                rospy.loginfo("Tag 50 detected! Turning RIGHT.")
+                self.turn_right()
+                self.detect_april_tags = True
+            else:
+                rospy.loginfo(f"No valid tag detected (got {self.detected_tag}). Waiting at red line.")
+                # Wait at the red line
+                start_time = rospy.get_time()
+                while rospy.get_time() - start_time < self.red_line_stop_time:
+                    self.vel_pub.publish(self.twist)
+                    rospy.sleep(0.1)
+        
+        elif self.red_line_count == 5:
+            rospy.loginfo("Fifth red line detected. Looking for April Tag...")
+            rospy.loginfo(type(self.detected_tag))
+            # Make the opposite turn from what was done at the first red line
+            if self.detected_tag == 48:  # Tag 48
+                rospy.loginfo("Tag 48 detected! Turning LEFT.")
+                self.turn_left()
+            elif self.detected_tag == 50:
+                rospy.loginfo("Tag 50 detected! Turning RIGHT.")
+                self.turn_right()
+            else:
+                rospy.loginfo(f"No valid tag detected (got {self.detected_tag}). Waiting at red line.")
+                # Wait at the red line
+                start_time = rospy.get_time()
+                while rospy.get_time() - start_time < self.red_line_stop_time:
+                    self.vel_pub.publish(self.twist)
+                    rospy.sleep(0.1)
+
+            
+        #     # Check multiple frames for April Tags
+        #     detected_tag_id = None
+        #     frames_to_check = 10
+            
+        #     for i in range(frames_to_check):
+        #         if self.last_image is not None:
+        #             tag_id, _ = self.detect_april_tag(self.last_image)
+        #             if tag_id is not None:
+        #                 detected_tag_id = tag_id
+        #                 break
+        #         # Short sleep between checks
+        #         rospy.sleep(0.2)
+            
+        #     # Make decision based on tag ID
+        #     if detected_tag_id == 59:
+        #         rospy.loginfo("Tag 48 detected! Turning LEFT.")
+        #         self.turn_left()
+        #     elif detected_tag_id == 113:
+        #         rospy.loginfo("Tag 50 detected! Turning RIGHT.")
+        #         self.turn_right()
+        #     else:
+        #         rospy.loginfo(f"No valid tag detected (got {detected_tag_id}). Waiting at red line.")
+        #         # Wait at the red line
+        #         start_time = rospy.get_time()
+        #         while rospy.get_time() - start_time < self.red_line_stop_time:
+        #             self.vel_pub.publish(self.twist)
+        #             rospy.sleep(0.1)
+            
+        #     # Disable April tag detection after handling
+        #     self.detect_april_tags = False
         else:
             # For other red lines, just wait
             rospy.loginfo(f"Red line {self.red_line_count} detected. Waiting {self.red_line_stop_time} seconds.")
