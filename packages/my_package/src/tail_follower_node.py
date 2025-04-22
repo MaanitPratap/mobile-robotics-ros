@@ -1829,62 +1829,63 @@ class LaneFollowWithDetectionNode(DTROS):
             # rospy.sleep(1.0)
 
     def shutdown_robot(self, event=None):
-        """Shutdown the robot using the dts command"""
-        rospy.loginfo("PARKING COMPLETE - SHUTTING DOWN ROBOT")
+        """Initiate robot shutdown sequence"""
+        rospy.loginfo("PARKING COMPLETE - INITIATING SHUTDOWN SEQUENCE")
         
-        # Final stop command to ensure motors are off
-        cmd = Twist2DStamped()
-        cmd.v = 0
-        cmd.omega = 0
-        for i in range(5):  # Send multiple stop commands to ensure it's received
-            self.vel_pub.publish(cmd)
-            rospy.sleep(0.1)
+        # Stop motors immediately
+        self._send_stop_command()
         
         # Set LEDs to off
         self.set_led_color("off")
         
-        # Get the robot hostname
-        hostname = os.environ.get('VEHICLE_NAME', 'csc22905')
-        
-        # Log shutdown message
-        rospy.loginfo(f"Executing shutdown command for {hostname}.local")
-        
-        try:
-            # Create the shutdown command
-            sys.exit(0)
-            shutdown_command = f"dts duckiebot shutdown {hostname}.local"
-            
-            # Execute the shutdown command
-            subprocess.Popen(shutdown_command, shell=True)
-            
-            rospy.loginfo(f"Shutdown command sent: {shutdown_command}")
-        except Exception as e:
-            rospy.logerr(f"Error executing shutdown command: {e}")
-            
-        # Also request ROS node shutdown (as a fallback)
+        # Trigger ROS shutdown - this will call the hook() method
         rospy.signal_shutdown("Parking maneuver completed successfully")
 
+    def _send_stop_command(self):
+        """Helper method to send stop commands to motors"""
+        cmd = Twist2DStamped()
+        cmd.v = 0
+        cmd.omega = 0
+        # Send multiple stop commands to ensure they're received
+        for i in range(5):
+            self.vel_pub.publish(cmd)
+            rospy.sleep(0.1)
+
     def hook(self):
-        """Shutdown hook"""
-        print("SHUTTING DOWN")
+        """Shutdown hook - guaranteed to be called during ROS shutdown"""
+        rospy.loginfo("EXECUTING SHUTDOWN HOOK")
+        
         # Display final stats
         rospy.loginfo(f"Final red line count: {self.red_line_count}")
         
-        # Turn off LEDs
-        self.set_led_color("off")  
+        # Ensure motors are stopped
+        self._send_stop_command()
         
-        # Stop motors
-        self.twist.v = 0
-        self.twist.omega = 0
-        self.vel_pub.publish(self.twist)
-        for i in range(8):
-            self.vel_pub.publish(self.twist)
+        # Turn off LEDs as a final precaution
+        self.set_led_color("off")
+        
+        # If you need to shut down the robot system itself, use a separate launcher script
+        # that will wait for this node to exit cleanly, then execute the system shutdown
+        rospy.loginfo("ROS node shutdown complete")
+        
+        # DO NOT use sys.exit() here, let ROS handle the shutdown process
 
 
 if __name__ == "__main__":
-    args = parse_args()
-    node = LaneFollowWithDetectionNode("lane_follow_with_detection_node", args)
-    rate = rospy.Rate(8)  # 8hz
-    while not rospy.is_shutdown():
-        node.drive()
-        rate.sleep()
+    try:
+        args = parse_args()
+        node = LaneFollowWithDetectionNode("lane_follow_with_detection_node", args)
+        
+        # Register the shutdown hook
+        rospy.on_shutdown(node.hook)
+        
+        rate = rospy.Rate(8)  # 8hz
+        while not rospy.is_shutdown():
+            node.drive()
+            rate.sleep()
+    except Exception as e:
+        rospy.logerr(f"Node failed with error: {e}")
+    finally:
+        # Ensure we attempt to stop the motors even if an exception occurred
+        if 'node' in locals():
+            node._send_stop_command()
