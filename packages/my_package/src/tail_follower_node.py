@@ -2,6 +2,7 @@
 
 import rospy
 import os
+import subprocess
 
 from duckietown.dtros import DTROS, NodeType
 from sensor_msgs.msg import CameraInfo, CompressedImage, Range
@@ -25,9 +26,20 @@ SAFETY = True
 AUSSIE = False
 
 
+import argparse
+
+# Add command line argument parsing
+def parse_args():
+    parser = argparse.ArgumentParser(description='Lane following with parking capabilities')
+    parser.add_argument('--stall', type=int, default=3, choices=[1, 2, 3, 4],
+                        help='Parking stall number (1-4)')
+    args = parser.parse_args()
+    return args
+
+
 class LaneFollowWithDetectionNode(DTROS):
 
-    def __init__(self, node_name):
+    def __init__(self, node_name, args=None):
         super(LaneFollowWithDetectionNode, self).__init__(node_name=node_name, node_type=NodeType.GENERIC)
         self.node_name = node_name
         self.veh = os.environ['VEHICLE_NAME']
@@ -210,6 +222,48 @@ class LaneFollowWithDetectionNode(DTROS):
         self.crosswalk_timeout = 0
         self.crosswalk_timeout_duration = 40  # 5 seconds at 8Hz
 
+
+        # Get the stall parameter from command line arguments or use default
+        if args and hasattr(args, 'stall'):
+            self.stall = args.stall
+        else:
+            # Get from ROS parameter server or environment variable if available
+            self.stall = rospy.get_param('~stall', int(os.environ.get('PARKING_STALL', 3)))
+            
+        rospy.loginfo(f"Initialized with parking stall {self.stall}")
+
+        # Parking state variables
+        self.parking_enabled = False
+        self.parking_state = 0
+        self.parking_state_start_time = rospy.get_time()
+        self.stall = 3  # Default stall number, can be changed
+        
+        # AprilTag detection for parking (reuse from the direct_parking_node)
+        # This is already defined in the current code, but make sure to add parking-specific variables
+        self.tag_detected = False
+        self.tag_x_center = 0
+        self.tag_id = -1
+        self.target_tag_id = -1
+        self.has_target_tag = False
+        self.tag_detection_count = 0
+        self.tag_lost_count = 0
+        self.last_valid_tag_center = 0
+        self.tag_alignment_count = 0
+        
+        # Constants for parking maneuver
+        self.short_drive_time = 2.5  # Time to drive ~7 inches at slow speed
+        self.long_drive_time = 4     # Time to drive ~17 inches at slow speed
+        self.turn_time = 1.5         # Time for 90-degree turn
+        self.drive_speed = 0.3      # Forward speed
+        self.turn_speed = 3          # Angular velocity for turns
+        self.align_speed = 3.0       # Speed for alignment correction
+        self.alignment_threshold = 20 # Pixels from center
+        self.stop_distance = 0.25    # Distance to stop in meters (25cm)
+        self.emergency_stop_distance = 0.15  # Emergency stop distance (15cm)
+        self.tag_confidence_threshold = 3  # Number of consecutive detections needed
+        self.tof_stop_enabled = True  # Flag to enable TOF-based stopping
+        self.crop_width = 320  # Reduced width of cropped region in pixels
+
         
         # Wait a little while before sending motor commands
         rospy.Rate(0.20).sleep()
@@ -262,6 +316,12 @@ class LaneFollowWithDetectionNode(DTROS):
         """Main image processing callback - handles lane following, duckiebot detection, red line detection, and april tag detection"""
         img = self.jpeg.decode(msg.data)
         self.last_image = img.copy()
+
+
+        # If in parking mode, process for parking
+        if self.parking_enabled:
+            self.process_parking_apriltag(img)
+            return
         
         # Process lane following
         self.process_lane_following(img)
@@ -577,7 +637,7 @@ class LaneFollowWithDetectionNode(DTROS):
         height, width = img.shape[:2]
         # Create a region of interest that excludes the sides of the image where lane markings usually appear
         # Focus on the middle 50% of the width and a specific height range
-        roi_x_start = int(width * 0.45)  # Left 45% excluded
+        roi_x_start = int(width * 0.55)  # Left 45% excluded
         roi_x_end = int(width * 0.95)    # Right 25% excluded
         roi_y_start = 150                # Top of region - adjust based on where ducks appear
         roi_y_end = 350                  # Bottom of region
@@ -698,7 +758,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # Define maneuver parameters
         turn_angle = 4.0     # Angular velocity for turns
         turn_time = 10       # Duration of turns (in cycles)
-        straight_time = 25   # Duration of straight segments (in cycles)
+        straight_time = 20   # Duration of straight segments (in cycles)
         wait_time = 5        # Initial wait time
         
         # Create command message
@@ -723,7 +783,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Left turn completed")
-            cmd.v = 0.15
+            cmd.v = 0.25
             cmd.omega = turn_angle
         elif self.maneuver_state == 2:
             # Drive straight into other lane
@@ -790,6 +850,359 @@ class LaneFollowWithDetectionNode(DTROS):
         
         # Return true while still maneuvering
         return True
+    
+    def process_parking_apriltag(self, img):
+        """Process camera images for AprilTag detection during parking"""
+        if not self.parking_enabled:
+            return
+            
+        try:
+            # Calculate crop region based on stall position
+            # For stalls 1 and 2 (right side), crop left side of image 
+            # For stalls 3 and 4 (left side), crop right side of image
+            self.image_width = img.shape[1]
+            image_width = img.shape[1]
+            image_height = img.shape[0]
+            image_center_x = image_width // 2
+            
+            if self.stall == 1 or self.stall == 3:
+                # For right stalls, take a narrow region on the right side
+                crop_start = 0
+                crop_end = min(self.crop_width, image_width)
+            else:
+                # For left stalls, take a narrow region on the left side
+                crop_start = max(0, image_width - self.crop_width)
+                crop_end = image_width
+                
+            # Crop image to only see the relevant part
+            cropped_image = img[:, crop_start:crop_end]
+            
+            # Convert to grayscale for AprilTag detection
+            gray = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+            
+            # Create a debug image (copy of original)
+            debug_image = img.copy()
+            
+            # Draw crop region on debug image
+            cv2.rectangle(debug_image, 
+                        (crop_start, 0), 
+                        (crop_end, debug_image.shape[0]), 
+                        (0, 255, 0), 2)
+            
+            # Detect AprilTags
+            tags = self.tag_detector.detect(gray)
+            
+            # Filter for our target tag if we already have one
+            target_tag = None
+            if tags:
+                if self.has_target_tag:
+                    # Look for our target tag ID in the detected tags
+                    for tag in tags:
+                        if tag.tag_id == self.target_tag_id:
+                            target_tag = tag
+                            break
+                else:
+                    # First detection - set the first detected tag as our target
+                    target_tag = tags[0]
+                    self.target_tag_id = target_tag.tag_id
+                    self.has_target_tag = True
+                    rospy.loginfo(f"*** PARKING: LOCKING ONTO TARGET TAG ID: {self.target_tag_id} ***")
+            
+            if target_tag is not None:
+                # We found our target tag
+                tag = target_tag
+                self.tag_id = tag.tag_id
+                
+                # Calculate tag's center position in the cropped image
+                center_x = int(sum(tag.corners[:,0]) / 4)
+                # Convert to position in original image
+                full_frame_center_x = center_x + crop_start
+                
+                # Apply smoothing with previous position for stability
+                if self.tag_detected:
+                    # If already tracking, apply smoothing
+                    alpha = 0.7  # Weight for new reading (0.7 new, 0.3 old)
+                    smoothed_center = alpha * full_frame_center_x + (1-alpha) * self.last_valid_tag_center
+                    self.tag_x_center = int(smoothed_center)
+                else:
+                    # Initial detection, no smoothing
+                    self.tag_x_center = full_frame_center_x
+                
+                # Store as last valid center
+                self.last_valid_tag_center = self.tag_x_center
+                
+                # Increment detection counter
+                self.tag_detection_count += 1
+                self.tag_lost_count = 0
+                
+                # Only consider tag detected if we've seen it for a few frames
+                if self.tag_detection_count >= self.tag_confidence_threshold:
+                    self.tag_detected = True
+                
+                # Draw tag detection on debug image
+                # Convert corners back to original image coordinates
+                corners_original = tag.corners.copy()
+                corners_original[:,0] += crop_start
+                
+                # Draw the tag outline
+                for i in range(4):
+                    pt1 = (int(corners_original[i][0]), int(corners_original[i][1]))
+                    pt2 = (int(corners_original[(i+1)%4][0]), int(corners_original[(i+1)%4][1]))
+                    cv2.line(debug_image, pt1, pt2, (0, 255, 0), 2)
+                
+                # Draw the tag center
+                cv2.circle(debug_image, (self.tag_x_center, int(sum(tag.corners[:,1])/4)), 
+                        5, (0, 0, 255), -1)
+                
+                # Add text with tag ID and position
+                cv2.putText(debug_image, f"TARGET Tag ID: {tag.tag_id}", 
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                cv2.putText(debug_image, f"X: {self.tag_x_center}", 
+                            (10, 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                
+                # Log detection
+                rospy.loginfo_throttle(1.0, f"Parking: Target AprilTag {tag.tag_id} detected at x={self.tag_x_center} (count={self.tag_detection_count})")
+            else:
+                # Our target tag not found
+                # Increment lost counter and reset detection counter
+                self.tag_lost_count += 1
+                
+                # Only consider tag lost if we haven't seen it for a few frames
+                if self.tag_lost_count > 5:
+                    self.tag_detection_count = 0
+                    self.tag_detected = False
+                
+                # Add text showing no target tag detected
+                if self.has_target_tag:
+                    cv2.putText(debug_image, f"Target Tag {self.target_tag_id} not detected", 
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+                else:
+                    cv2.putText(debug_image, "No AprilTag detected", 
+                            (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
+            
+            # Add image center line
+            image_center = image_width // 2
+            cv2.line(debug_image, (image_center, 0), (image_center, debug_image.shape[0]), 
+                    (255, 0, 0), 1)
+            
+            # Add current state and ToF distance
+            cv2.putText(debug_image, f"Parking State: {self.parking_state}", 
+                    (10, debug_image.shape[0] - 90), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            cv2.putText(debug_image, f"ToF: {self.tof_distance:.2f}m", 
+                    (10, debug_image.shape[0] - 60), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            
+            # Add emergency stop threshold line
+            emergency_text = f"Stop at: {self.stop_distance:.2f}m"
+            cv2.putText(debug_image, emergency_text, 
+                    (10, debug_image.shape[0] - 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 165, 255), 2)
+            
+            # Draw alignment target zone
+            if self.tag_detected:
+                left_limit = image_center - self.alignment_threshold
+                right_limit = image_center + self.alignment_threshold
+                cv2.line(debug_image, (left_limit, 0), (left_limit, debug_image.shape[0]), (0, 255, 255), 1)
+                cv2.line(debug_image, (right_limit, 0), (right_limit, debug_image.shape[0]), (0, 255, 255), 1)
+            
+            # Publish the debug image
+            debug_msg = CompressedImage()
+            debug_msg.header.stamp = rospy.Time.now()
+            debug_msg.format = "jpeg"
+            debug_msg.data = np.array(cv2.imencode('.jpg', debug_image)[1]).tostring()
+            self.pub_debug_img.publish(debug_msg)
+                
+        except Exception as e:
+            rospy.logerr(f"Error processing image for parking: {e}")
+    
+    # Add the parking method
+    def park(self):
+        """Execute the direct parking state machine"""
+        # Skip if not in parking mode
+        if not self.parking_enabled:
+            return False
+            
+        current_time = rospy.get_time()
+        elapsed = current_time - self.parking_state_start_time
+        
+        # Create command message
+        cmd = Twist2DStamped()
+        
+        # Emergency TOF check for all states except state 3 (already stopped)
+        if self.parking_state != 3 and self.tof_distance < self.emergency_stop_distance:
+            self.parking_state = 3
+            self.parking_state_start_time = current_time
+            rospy.logwarn(f"PARKING: EMERGENCY STOP! TOF distance: {self.tof_distance:.2f}m")
+            # Send stop command immediately
+            cmd.v = 0
+            cmd.omega = 0
+            self.vel_pub.publish(cmd)
+            return True
+        
+        # State machine for direct parking
+        if self.parking_state == 0:
+            # Initial state - drive forward a specified distance based on stall number
+            if self.stall == 1 or self.stall == 3:
+                drive_time = self.short_drive_time
+                rospy.loginfo_throttle(1.0, f"Parking State 0: Moving forward short distance for stall {self.stall}")
+            else:
+                drive_time = self.long_drive_time
+                rospy.loginfo_throttle(1.0, f"Parking State 0: Moving forward longer distance for stall {self.stall}")
+                
+            cmd.v = self.drive_speed
+            cmd.omega = 0
+            
+            if elapsed > drive_time:
+                self.parking_state = 1
+                self.parking_state_start_time = current_time
+                rospy.loginfo("Parking: Moving to state 1: Turn toward parking stall")
+                
+        elif self.parking_state == 1:
+            # Turn 90 degrees in the appropriate direction
+            if self.stall == 1 or self.stall == 2:
+                # Right turn for stalls 1 and 2
+                cmd.v = 0.1
+                cmd.omega = -self.turn_speed
+                rospy.loginfo_throttle(1.0, "Parking: Turning right 90 degrees")
+            else:
+                # Left turn for stalls 3 and 4
+                cmd.v = 0.1
+                cmd.omega = self.turn_speed
+                rospy.loginfo_throttle(1.0, "Parking: Turning left 90 degrees")
+            
+            if elapsed > self.turn_time:
+                self.parking_state = 1.5  # New state for alignment
+                self.parking_state_start_time = current_time
+                rospy.loginfo("Parking: Moving to state 1.5: Searching for AprilTag")
+                # Reset tag tracking when starting search
+                if not self.has_target_tag:
+                    self.tag_detected = False
+                    self.tag_detection_count = 0
+                    self.tag_lost_count = 0
+                
+        elif self.parking_state == 1.5:
+            # New state: Move forward until AprilTag is detected
+            if not self.tag_detected:
+                # Move forward slowly until tag is detected
+                cmd.v = 0.2  # Slow forward movement
+                cmd.omega = 0  # Keep straight
+                
+                # Log search info
+                rospy.loginfo_throttle(1.0, f"Parking: Moving forward to find target AprilTag...")
+                
+                # If we've been searching too long, move to next state anyway
+                if elapsed > 7.0:
+                    if self.has_target_tag:
+                        rospy.logwarn(f"Parking: Could not find target tag {self.target_tag_id}. Moving to state 2 anyway.")
+                    else:
+                        rospy.logwarn("Parking: Could not find any AprilTag. Moving to state 2 anyway.")
+                    self.parking_state = 2
+                    self.parking_state_start_time = current_time
+            else:
+                # Once tag is detected, move to alignment state
+                self.parking_state = 1.6
+                self.parking_state_start_time = current_time
+                self.tag_alignment_count = 0  # Reset alignment counter
+                rospy.loginfo(f"Parking: Target AprilTag {self.target_tag_id} detected. Moving to state 1.6: Aligning with tag.")
+                
+        elif self.parking_state == 1.6:
+            # Alignment state: Center on the AprilTag
+            if self.tag_detected:
+                # Calculate center of the image
+                image_center = self.image_width / 2
+                # Calculate alignment error
+                error = self.tag_x_center - image_center
+                
+                # Apply proportional control to align
+                cmd.v = 0.15  # Slower forward movement during alignment for better precision
+                
+                # Adjust error directionality based on stall
+                if self.stall == 1 or self.stall == 2:
+                    # For right-side stalls, keep original error direction
+                    alignment_error = error
+                else:
+                    # For left-side stalls, invert error direction
+                    alignment_error = -error
+                
+                # Apply proportional control with scaling factor
+                # Add deadband to prevent oscillation
+                if abs(error) > 5:  # Small deadband to prevent oscillation
+                    cmd.omega = -alignment_error * 0.015  # Increased P gain for faster alignment
+                else:
+                    cmd.omega = 0  # Zero correction when very close to center
+                
+                # Log alignment info
+                rospy.loginfo_throttle(0.5, f"Parking: Aligning: Tag at {self.tag_x_center}, Error: {error}")
+                
+                # Check if TOF is getting close during alignment
+                if self.tof_distance < self.stop_distance:
+                    self.parking_state = 3  # Go straight to stopping if we're close enough
+                    self.parking_state_start_time = current_time
+                    rospy.loginfo(f"Parking: TOF detected close obstacle during alignment: {self.tof_distance:.2f}m. Stopping.")
+                
+                # If aligned within threshold, move to next state
+                elif abs(error) < self.alignment_threshold:
+                    self.tag_alignment_count += 1
+                    
+                    # Require multiple consecutive aligned frames
+                    if self.tag_alignment_count > 5:
+                        self.parking_state = 2
+                        self.parking_state_start_time = current_time
+                        rospy.loginfo(f"Parking: Aligned with target tag {self.target_tag_id}. Moving to state 2: Drive straight into stall")
+                else:
+                    # Reset alignment counter if not aligned
+                    self.tag_alignment_count = 0
+            else:
+                # If tag lost during alignment, continue with last known position for a bit
+                if self.tag_lost_count < 10:
+                    # Use last known position for a brief period
+                    rospy.logwarn_throttle(1.0, f"Parking: Target tag {self.target_tag_id} temporarily lost during alignment, using last position")
+                    cmd.v = 0.1  # Slower movement when tag is lost
+                else:
+                    # If tag lost for too long, go back to search state
+                    self.parking_state = 1.5
+                    self.parking_state_start_time = current_time
+                    rospy.logwarn(f"Parking: Lost target tag {self.target_tag_id} during alignment. Returning to search.")
+                
+        elif self.parking_state == 2:
+            # Drive straight until TOF sensor detects obstacle
+            cmd.v = 0.15  # Slower approach speed for more controlled stopping
+            cmd.omega = 0
+            
+            # Check for TOF sensor health
+            tof_age = current_time - self.tof_last_update
+            if tof_age > 1.0:  # No TOF updates in more than 1 second
+                rospy.logwarn_throttle(1.0, f"Parking: TOF sensor not updating ({tof_age:.1f}s old)")
+            
+            # Log the TOF distance
+            rospy.loginfo_throttle(0.5, f"Parking: Approaching stall, TOF distance: {self.tof_distance:.2f}m (stop at {self.stop_distance:.2f}m)")
+            
+            if self.tof_distance < self.stop_distance:  # Obstacle detected within stop_distance
+                self.parking_state = 3
+                self.parking_state_start_time = current_time
+                rospy.loginfo(f"Parking: Obstacle detected at {self.tof_distance:.2f}m, stopping")
+            elif elapsed > 8.0:  # Safety timeout after 8 seconds
+                self.parking_state = 3
+                self.parking_state_start_time = current_time
+                rospy.loginfo("Parking: Safety timeout reached, stopping")
+                
+        elif self.parking_state == 3:
+            # Parking complete - stop the robot
+            cmd.v = 0
+            cmd.omega = 0
+            
+            if elapsed < 1.0:  # Just log once
+                if self.has_target_tag:
+                    rospy.loginfo(f"Parking complete in stall {self.stall} (targeting tag {self.target_tag_id})!")
+                else:
+                    rospy.loginfo(f"Parking complete in stall {self.stall}!")
+
+                self.set_led_color("purple")
+
+                rospy.Timer(rospy.Duration(2.0), self.shutdown_robot, oneshot=True)
+        
+        # Publish the command
+        self.vel_pub.publish(cmd)
+        return True
+
 
     def process_lane_following(self, img):
         """Process the image for lane following"""
@@ -1080,6 +1493,11 @@ class LaneFollowWithDetectionNode(DTROS):
 
     def drive(self):
         """Main control function that integrates lane following with duckiebot following"""
+
+
+        if self.parking_enabled:
+            if self.park():
+                return
         # Decrement red line cooldown if active
         if self.red_line_cooldown > 0:
             self.red_line_cooldown -= 1/8.0  # Assuming 8Hz loop rate
@@ -1151,6 +1569,23 @@ class LaneFollowWithDetectionNode(DTROS):
             # Reset flag after handling
             self.red_line_detected = False
             self.at_red_line = False
+
+
+
+            if self.red_line_count == 6:
+                rospy.loginfo("SIXTH RED LINE DETECTED! Enabling parking mode.")
+                self.parking_enabled = True
+                self.parking_state = 0
+                self.parking_state_start_time = rospy.get_time()
+                # Reset tag tracking for parking
+                self.tag_detected = False
+                self.tag_detection_count = 0
+                self.tag_lost_count = 0
+                self.has_target_tag = False
+                self.target_tag_id = -1
+                # Set LED to indicate parking mode
+                self.set_led_color("blue")
+                return
             return
             
         # First handle any safety stops
@@ -1328,6 +1763,16 @@ class LaneFollowWithDetectionNode(DTROS):
             self.blue_crosswalk_detected = False
             self.duck_detection_enabled = False
 
+        elif self.red_line_count == 6:
+            rospy.loginfo("Sixth red line detected. Preparing for parking maneuver...")
+            # Just wait at the red line before enabling parking mode
+            # The actual parking mode will be enabled in the drive method after returning
+            start_time = rospy.get_time()
+            while rospy.get_time() - start_time < self.red_line_stop_time:
+                self.vel_pub.publish(self.twist)
+                rospy.sleep(0.1)
+            return
+
             
         #     # Check multiple frames for April Tags
         #     detected_tag_id = None
@@ -1378,6 +1823,41 @@ class LaneFollowWithDetectionNode(DTROS):
             self.vel_pub.publish(self.twist)
             rospy.sleep(1.0)
 
+    def shutdown_robot(self, event=None):
+        """Shutdown the robot using the dts command"""
+        rospy.loginfo("PARKING COMPLETE - SHUTTING DOWN ROBOT")
+        
+        # Final stop command to ensure motors are off
+        cmd = Twist2DStamped()
+        cmd.v = 0
+        cmd.omega = 0
+        for i in range(5):  # Send multiple stop commands to ensure it's received
+            self.vel_pub.publish(cmd)
+            rospy.sleep(0.1)
+        
+        # Set LEDs to off
+        self.set_led_color("off")
+        
+        # Get the robot hostname
+        hostname = os.environ.get('VEHICLE_NAME', 'csc22905')
+        
+        # Log shutdown message
+        rospy.loginfo(f"Executing shutdown command for {hostname}.local")
+        
+        try:
+            # Create the shutdown command
+            shutdown_command = f"dts duckiebot shutdown {hostname}.local"
+            
+            # Execute the shutdown command
+            subprocess.Popen(shutdown_command, shell=True)
+            
+            rospy.loginfo(f"Shutdown command sent: {shutdown_command}")
+        except Exception as e:
+            rospy.logerr(f"Error executing shutdown command: {e}")
+            
+        # Also request ROS node shutdown (as a fallback)
+        rospy.signal_shutdown("Parking maneuver completed successfully")
+
     def hook(self):
         """Shutdown hook"""
         print("SHUTTING DOWN")
@@ -1396,6 +1876,7 @@ class LaneFollowWithDetectionNode(DTROS):
 
 
 if __name__ == "__main__":
+    args = parse_args()
     node = LaneFollowWithDetectionNode("lane_follow_with_detection_node")
     rate = rospy.Rate(8)  # 8hz
     while not rospy.is_shutdown():
