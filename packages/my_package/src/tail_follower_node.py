@@ -32,7 +32,7 @@ class LaneFollowWithDetectionNode(DTROS):
         self.node_name = node_name
         self.veh = os.environ['VEHICLE_NAME']
 
-        # Initialize LED service connection
+        # ----------- LED SERVICE -----------
         rospy.loginfo("Initializing LED service connection...")
         self.led_service = None
         try:
@@ -43,7 +43,9 @@ class LaneFollowWithDetectionNode(DTROS):
         except rospy.ROSException:
             rospy.logwarn("LED service not available, will continue without LED indicators")
 
-        # Publishers & Subscribers
+        # ----------- SUBSCRIBERS/PUBLISHERS -----------
+
+        # Subscribe to camera info
         self.tof_sub = rospy.Subscriber("/" + self.veh + "/front_center_tof_driver_node/range",
                                         Range,
                                         self.cb_tof,
@@ -63,7 +65,6 @@ class LaneFollowWithDetectionNode(DTROS):
                                        Twist2DStamped,
                                        queue_size=1)
         
-        # Debug publisher for duckiebot detection and red line detection
         self.pub_debug_img = rospy.Publisher("/" + self.veh + "/detection_node/debug/compressed",
                                             CompressedImage,
                                             queue_size=1)
@@ -162,6 +163,8 @@ class LaneFollowWithDetectionNode(DTROS):
         self.min_dot_area = 20  # Minimum area of a dot to be detected
         self.min_pattern_dots = 5  # Minimum number of dots to consider a valid pattern
 
+        self.done_man = False  # Flag to indicate if we have completed the maneuver
+
 
         # April Tag detection parameters
         self.tag_detector = Detector(families='tag36h11',
@@ -181,7 +184,8 @@ class LaneFollowWithDetectionNode(DTROS):
         # self.start_blue_detection = False  # Flag to start blue detection
         # Duck detection parameters
         self.duck_detected = False
-        self.duck_area_threshold = 500  # Minimum area to consider a valid duck
+        self.duck_detected_false_counter = 0  # Counter for false detections
+        self.duck_area_threshold = 300  # Minimum area to consider a valid duck
         self.duck_detection_enabled = False  # Only enable after fifth red line
         self.at_crosswalk = False  # Flag to indicate we're at a crosswalk
         self.crosswalk_april_tags = [48, 50]  # April tags that mark crosswalks
@@ -189,10 +193,12 @@ class LaneFollowWithDetectionNode(DTROS):
         self.crosswalk_max_wait = 80  # Maximum wait time (approximately 10 seconds at 8Hz)
 
 
+
         self.blue_line_detection_enabled = False
+        self.blue_crosswalk_detected = False
           # Flag to control when to detect blue lines
         self.blue_crosswalk_count = 0  # Counter for blue crosswalks
-        self.blue_line_area_threshold = 500  # Minimum area of blue contour to be considered a line
+        self.blue_line_area_threshold = 350  # Minimum area of blue contour to be considered a line
 
 
         self.maneuvering = False
@@ -203,8 +209,6 @@ class LaneFollowWithDetectionNode(DTROS):
 
         self.crosswalk_timeout = 0
         self.crosswalk_timeout_duration = 40  # 5 seconds at 8Hz
-
-
 
         
         # Wait a little while before sending motor commands
@@ -244,6 +248,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 if self.passed_first_crosswalk and not self.at_crosswalk:
                     rospy.loginfo(f"Potential broken duckiebot detected at distance: {self.tof_distance}m")
                     self.obj_stop = True
+
                 else:
                     # After 5th line but before/at first crosswalk - ignore normal obstacle stops
                     rospy.loginfo(f"Obstacle detected but ignoring (after 5th line): {self.tof_distance}m")
@@ -271,8 +276,6 @@ class LaneFollowWithDetectionNode(DTROS):
         # Process blue detection
         # self.detect_blue(img)
 
-
-
         # self.process_blue_crosswalk_detection(img)
         # Process April Tag detection if enabled
         if self.detect_april_tags:
@@ -280,13 +283,9 @@ class LaneFollowWithDetectionNode(DTROS):
             if tag_id is not None:
                 rospy.loginfo(f"April Tag detected while driving: {tag_id}")
                 self.detected_tag = tag_id
-
-                # if tag_id in self.crosswalk_april_tags and self.duck_detection_enabled:
-                #     rospy.loginfo(f"Crosswalk April Tag {tag_id} detected!")
-                #     self.at_crosswalk = True
-
-                
                 self.detect_april_tags = False
+
+
         # rospy.loginfo(f"Blue crosswalk detected before enable: {self.blue_crosswalk_detected}")
         # Process blue crosswalk detection if enabled
         if self.blue_line_detection_enabled and not self.at_crosswalk:
@@ -294,47 +293,28 @@ class LaneFollowWithDetectionNode(DTROS):
             rospy.loginfo(f"Blue crosswalk detected: {self.blue_crosswalk_detected}")
             if self.blue_crosswalk_detected:
                 rospy.loginfo("Blue crosswalk detected!")
-                self.at_crosswalk = True
+                
                 self.crosswalk_wait_time = 0
                 self.blue_crosswalk_count += 1
-                
-                # Enable duck detection when first blue line is detected
-                if self.blue_crosswalk_count == 1:
-                    rospy.loginfo("First blue crosswalk detected. Enabling duck detection.")
-                    self.duck_detection_enabled = True
-                    
-                    # Disable blue line detection temporarily (will be re-enabled after waiting)
-                    self.blue_line_detection_enabled = False
+
+                rospy.loginfo("Enabling duck detection and at Crosswalk")
+                self.at_crosswalk = True
+                self.duck_detection_enabled = True
+                self.blue_line_detection_enabled = False
+                rospy.loginfo("Disabling blue line detection")
+
+
+        # Add this code to the callback method, replacing the equivalent section:
 
         if self.duck_detection_enabled and self.at_crosswalk:
-            self.detect_duck(img)
-                
-                # # Handle detected April tags before reaching the fourth stop line
-                # if self.red_line_count == 3:
-                #     # Stop the robot
-                #     self.twist.v = 0
-                #     self.twist.omega = 0
-                #     self.vel_pub.publish(self.twist)
-                # #     rospy.sleep(0.5)  # Brief pause
-                    
-                # if tag_id == "59":  # Tag 48
-                #     rospy.loginfo("Tag 59 detected! Turning LEFT.")
-                #     # self.turn_left()
-                #     self.detected_tag = 59
-                #     # Disable April tag detection after handling
-                #     self.detect_april_tags = False
-                #     # Set cooldown to avoid detecting stop line immediately after turn
-                #     # self.red_line_cooldown = self.red_line_cooldown_time / 2
-                    
-                # elif tag_id == "113":  # Tag 50
-                #     rospy.loginfo("Tag 113 detected! Turning RIGHT.")
-                #     # self.turn_right()
-                #     self.detected_tag = 113
-                #     # Disable April tag detection after handling
-                #     self.detect_april_tags = False
-                #     # Set cooldown to avoid detecting stop line immediately after turn
-                #     # self.red_line_cooldown = self.red_line_cooldown_time / 2
-            # Process duck detection if enabled and at crosswalk
+            # Check for duck detection
+            self.duck_detected = self.detect_duck(img)
+            if self.duck_detected:
+                # Just set LED here but don't call stop() - we'll handle stopping in the drive() method
+                self.set_led_color("purple")
+                rospy.loginfo(f"Duck detected in callback: {self.duck_detected}, counter: {self.duck_detected_false_counter}")
+            else:
+                rospy.loginfo(f"No duck detected in callback, counter: {self.duck_detected_false_counter}/80")
 
 
     def detect_blue(self, img):
@@ -504,12 +484,10 @@ class LaneFollowWithDetectionNode(DTROS):
         return tag_id, debug_img
     
 
-
-    # Add this method to detect blue crosswalk lines
     def process_blue_crosswalk_detection(self, img):
         """Process the image to detect blue crosswalk lines on the path"""
         # Use a lower portion of the image to detect blue lines closer to the robot
-        crop_img = img[300:-1, :, :]  # Same as red line detection
+        crop_img = img[280:-1, :, :]  # Same as red line detection
         
         # Convert to HSV for better color detection
         hsv = cv2.cvtColor(crop_img, cv2.COLOR_BGR2HSV)
@@ -528,7 +506,7 @@ class LaneFollowWithDetectionNode(DTROS):
         debug_img = crop_img.copy()
         
         # Check for blue line
-        self.blue_crosswalk_detected = False
+        # self.blue_crosswalk_detected = False
         max_blue_area = 0
         max_blue_idx = -1
         
@@ -557,6 +535,10 @@ class LaneFollowWithDetectionNode(DTROS):
             
             if closest_y > position_threshold:
                 self.blue_crosswalk_detected = True
+                self.twist.v = 0
+                self.twist.omega = 0
+                self.vel_pub.publish(self.twist)
+
                 cv2.putText(debug_img, "BLUE CROSSWALK DETECTED!", (10, 120), 
                         cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
             else:
@@ -628,7 +610,7 @@ class LaneFollowWithDetectionNode(DTROS):
         debug_img = crop_img.copy()
         
         # 6. Check for duck with improved filtering
-        self.duck_detected = False
+        duck_currently_visible = False
         valid_duck_contours = []
         
         for contour in contours:
@@ -660,14 +642,15 @@ class LaneFollowWithDetectionNode(DTROS):
                 
             # If it passed all filters, add to valid contours
             valid_duck_contours.append(contour)
-            
+                
         # 7. Check if we have valid duck contours
         if valid_duck_contours:
             # Find the largest valid contour
             largest_contour = max(valid_duck_contours, key=cv2.contourArea)
             largest_area = cv2.contourArea(largest_contour)
             
-            self.duck_detected = True
+            duck_currently_visible = True
+            self.duck_detected_false_counter = 0  # Reset counter when duck is seen
             
             # Draw the contour on debug image
             cv2.drawContours(debug_img, [largest_contour], -1, (0, 255, 255), 3)
@@ -675,9 +658,20 @@ class LaneFollowWithDetectionNode(DTROS):
             # Add text showing detection
             cv2.putText(debug_img, f"DUCK DETECTED! Area: {largest_area}", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
-        else:
+        
+        # Update the duck detection state based on current frame and counter
+        if duck_currently_visible:
+            self.duck_detected = True
+        elif not duck_currently_visible:
+            # Only increment counter if duck isn't visible this frame
+            self.duck_detected_false_counter += 1
+            
+            # Only set duck_detected to False after many consecutive misses
+            if self.duck_detected_false_counter >= 20:  # Require more consecutive misses (8Hz x 2.5s = 20)
+                self.duck_detected = False
+                
             # Add text showing no detection
-            cv2.putText(debug_img, "No duck detected", (10, 30), 
+            cv2.putText(debug_img, f"No duck detected (counter: {self.duck_detected_false_counter}/20)", (10, 30), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
         
         # Draw ROI boundaries on the original image for debugging
@@ -704,7 +698,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # Define maneuver parameters
         turn_angle = 4.0     # Angular velocity for turns
         turn_time = 10       # Duration of turns (in cycles)
-        straight_time = 30   # Duration of straight segments (in cycles)
+        straight_time = 25   # Duration of straight segments (in cycles)
         wait_time = 5        # Initial wait time
         
         # Create command message
@@ -745,7 +739,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Right turn completed")
-            cmd.v = 0.15
+            cmd.v = 0.2
             cmd.omega = -turn_angle
         elif self.maneuver_state == 4:
             # Drive straight past the obstacle
@@ -761,7 +755,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Right turn to original lane completed")
-            cmd.v = 0.15
+            cmd.v = 0.2
             cmd.omega = -turn_angle
         elif self.maneuver_state == 6:
             # Drive straight into original lane
@@ -777,16 +771,18 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Final alignment completed")
-            cmd.v = 0.15
+            cmd.v = 0.2
             cmd.omega = turn_angle
         else:
             # End maneuver
             self.maneuvering = False
+            self.done_man = True
             self.broken_bot_detected = False
             self.state_time = 0
             self.maneuver_state = 0
             cmd.v = self.base_velocity
             cmd.omega = 0
+            self.blue_line_detection_enabled = True
             rospy.loginfo("Maneuver sequence completed")
         
         # Publish the command
@@ -1088,60 +1084,40 @@ class LaneFollowWithDetectionNode(DTROS):
         if self.red_line_cooldown > 0:
             self.red_line_cooldown -= 1/8.0  # Assuming 8Hz loop rate
 
-
-        
         # Enable blue line detection after the fifth red line
-        if self.red_line_count >= 5 and not self.blue_line_detection_enabled and not self.duck_detection_enabled:
+        if self.red_line_count >= 5 and not self.blue_line_detection_enabled and not self.duck_detection_enabled and self.blue_crosswalk_count == 0:
             self.blue_line_detection_enabled = True
             rospy.loginfo("Blue crosswalk detection enabled")
         
         # Handle crosswalk logic
         if self.at_crosswalk:
-            # Stop the robot
-            self.twist.v = 0
-            self.twist.omega = 0
-            self.vel_pub.publish(self.twist)
+            rospy.loginfo(f"At crosswalk, waiting for duck (duck_detected: {self.duck_detected}, counter: {self.duck_detected_false_counter}/80)")
             
-            # Check for duck
+            # Stop the robot while duck is detected or while counter hasn't reached threshold
             if self.duck_detected:
-                rospy.loginfo("Duck detected at crosswalk, waiting for it to cross...")
+                rospy.loginfo("Duck detected at crosswalk, stopping")
                 self.set_led_color("purple")  # Use purple LED for duck waiting
-                self.crosswalk_wait_time = 0  # Reset wait time
-            else:
-                # Increment wait counter
-                self.crosswalk_wait_time += 1
-                rospy.loginfo(f"Waiting at crosswalk for {self.crosswalk_wait_time}/{self.crosswalk_max_wait} cycles")
-                
-                # If we've waited long enough without seeing a duck or the duck has passed
-                if self.crosswalk_wait_time >= self.crosswalk_max_wait and not self.duck_detected:
-                    rospy.loginfo("Resuming after crosswalk")
-                    self.at_crosswalk = False
-                    self.set_led_color("green")
-                    self.crosswalk_wait_time = 0
-
-                
-                    
-                    # # Re-enable blue line detection after handling the current crosswalk
-                    # self.blue_line_detection_enabled = True
+                self.stop(2)
+            
+            # Only proceed if we're confident no duck is present
+            if not self.duck_detected and self.duck_detected_false_counter >= 80:
+                rospy.loginfo(f"No duck detected for {self.duck_detected_false_counter} consecutive frames. Resuming after crosswalk")
+                self.at_crosswalk = False
+                self.duck_detection_enabled = False
+                self.blue_line_detection_enabled = False
+                self.blue_crosswalk_detected = False
+                self.set_led_color("green")
             
             # Skip the rest of the drive function while at crosswalk
             return
-        
 
-                # Set passed_first_crosswalk flag when robot passes first blue crosswalk
+        # Set passed_first_crosswalk flag when robot passes first blue crosswalk
         if self.blue_crosswalk_count >= 1 and not self.passed_first_crosswalk and not self.at_crosswalk:
             self.passed_first_crosswalk = True
-            # self.crosswalk_timeout = self.crosswalk_timeout_duration  # Set timeout
-            rospy.loginfo("Passed first blue crosswalk. Will monitor for broken duckiebot after {self.crosswalk_timeout_duration}/8.0 seconds.")
+            rospy.loginfo("Passed first blue crosswalk. Will monitor for broken duckiebot")
         
-        # # Decrement the crosswalk timeout if active
-        # if self.crosswalk_timeout > 0:
-        #     self.crosswalk_timeout -= 1
-        #     if self.crosswalk_timeout == 0:
-        #         rospy.loginfo("Timeout completed. Now monitoring for broken duckiebot.")
-
         # Check for broken duckiebot after first crosswalk
-        if self.passed_first_crosswalk and self.obj_stop and not self.maneuvering:
+        if self.passed_first_crosswalk and self.obj_stop and not self.maneuvering and not self.done_man:
             rospy.loginfo("Broken duckiebot detected! Starting maneuvering sequence.")
             self.broken_bot_detected = True
             self.maneuvering = True
@@ -1151,6 +1127,10 @@ class LaneFollowWithDetectionNode(DTROS):
         # Handle maneuvering around broken duckiebot
         if self.maneuvering:
             self.maneuver_around_bot()
+            # self.maneuvering = False
+            # self.blue_line_detection_enabled = False
+            # self.blue_crosswalk_detected = False
+            # self.duck_detection_enabled = False
             return
         
         # Check for red line detection and handle it
@@ -1189,7 +1169,6 @@ class LaneFollowWithDetectionNode(DTROS):
         
         # Update LED colors based on state
         self.set_led_color("green")  # Reset LED color to green
-        # self.update_leds()
         
         # Handle lane following
         if self.proportional is None:
@@ -1217,11 +1196,6 @@ class LaneFollowWithDetectionNode(DTROS):
             # Set velocity based on detection and steering based on lane following
             self.twist.v = self.current_velocity
             self.twist.omega = P + D + I
-            
-            # if DEBUG:
-            #     self.loginfo(f"P: {P}, D: {D}, I: {I}, omega: {self.twist.omega}, v: {self.twist.v}")
-            #     if self.duckiebot_detected:
-            #         self.loginfo(f"Duckiebot detected at distance: {self.distance_to_duckiebot:.2f}m")
 
         # Publish the command
         self.vel_pub.publish(self.twist)
@@ -1402,6 +1376,7 @@ class LaneFollowWithDetectionNode(DTROS):
         self.twist.omega = 0
         for i in range(duration):
             self.vel_pub.publish(self.twist)
+            rospy.sleep(1.0)
 
     def hook(self):
         """Shutdown hook"""
