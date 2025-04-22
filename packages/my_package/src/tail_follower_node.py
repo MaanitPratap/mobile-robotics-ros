@@ -13,6 +13,8 @@ import numpy as np
 from duckietown_msgs.msg import WheelsCmdStamped, Twist2DStamped
 from dt_apriltags import Detector
 
+import sys
+
 from led_service.srv import SetLEDColor, SetLEDColorRequest
 
 ROAD_MASK = [(20, 60, 0), (50, 255, 255)]
@@ -20,7 +22,7 @@ RED_MASK = [(0, 140, 100), (10, 255, 255)]  # Lower red HSV range
 RED_MASK2 = [(170, 140, 100), (180, 255, 255)]  # Upper red HSV range (wrapped around)
 BLUE_MASK = [(90, 100, 50), (130, 255, 200)]  # Adjusted for duckiebot blue
 DUCK_MASK = [(20, 100, 100), (30, 255, 255)]  # Yellow HSV range for duck detection
-DEBUG = True
+DEBUG = False
 ENGLISH = True
 SAFETY = True
 AUSSIE = False
@@ -77,28 +79,28 @@ class LaneFollowWithDetectionNode(DTROS):
                                        Twist2DStamped,
                                        queue_size=1)
         
-        self.pub_debug_img = rospy.Publisher("/" + self.veh + "/detection_node/debug/compressed",
-                                            CompressedImage,
-                                            queue_size=1)
+        # self.pub_debug_img = rospy.Publisher("/" + self.veh + "/detection_node/debug/compressed",
+        #                                     CompressedImage,
+        #                                     queue_size=1)
         
-        self.pub_red_line_img = rospy.Publisher("/" + self.veh + "/red_line_node/debug/compressed",
-                                               CompressedImage,
-                                               queue_size=1)
+        # self.pub_red_line_img = rospy.Publisher("/" + self.veh + "/red_line_node/debug/compressed",
+        #                                        CompressedImage,
+        #                                        queue_size=1)
         
 
         # Debug publisher for blue detection
-        self.pub_blue_detect_img = rospy.Publisher("/" + self.veh + "/blue_detection_node/debug/compressed",
-                                                CompressedImage,
-                                                queue_size=1)
+        # self.pub_blue_detect_img = rospy.Publisher("/" + self.veh + "/blue_detection_node/debug/compressed",
+        #                                         CompressedImage,
+        #                                         queue_size=1)
         
-        # Debug publisher for blue detection
-        self.pub_blue_line_detect_img = rospy.Publisher("/" + self.veh + "/blue_line_detection_node/debug/compressed",
-                                                CompressedImage,
-                                                queue_size=1)
+        # # Debug publisher for blue detection
+        # self.pub_blue_line_detect_img = rospy.Publisher("/" + self.veh + "/blue_line_detection_node/debug/compressed",
+        #                                         CompressedImage,
+        #                                         queue_size=1)
         
-        self.pub_duck_detect_img = rospy.Publisher("/" + self.veh + "/duck_detection_node/debug/compressed",
-                                         CompressedImage,
-                                         queue_size=1)
+        # self.pub_duck_detect_img = rospy.Publisher("/" + self.veh + "/duck_detection_node/debug/compressed",
+        #                                  CompressedImage,
+        #                                  queue_size=1)
 
         self.jpeg = TurboJPEG()
 
@@ -107,7 +109,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # PID Variables for lane following
         self.proportional = None
         if ENGLISH:
-            self.offset = 210
+            self.offset = 190
         else:
             self.offset = 220
         if AUSSIE:
@@ -145,7 +147,7 @@ class LaneFollowWithDetectionNode(DTROS):
 
         # Red line detection parameters
         self.red_line_detected = False
-        self.red_line_count = 5  # Counter for red lines
+        self.red_line_count = 0  # Counter for red lines
         self.red_line_stop_time = 2  # Time to stop at red line (seconds)
         self.red_line_cooldown = 0  # Cooldown to avoid duplicate detections
         self.red_line_cooldown_time = 10  # Cooldown period after detecting a red line
@@ -236,7 +238,7 @@ class LaneFollowWithDetectionNode(DTROS):
         self.parking_enabled = False
         self.parking_state = 0
         self.parking_state_start_time = rospy.get_time()
-        self.stall = 3  # Default stall number, can be changed
+        # self.stall = 3  # Default stall number, can be changed
         
         # AprilTag detection for parking (reuse from the direct_parking_node)
         # This is already defined in the current code, but make sure to add parking-specific variables
@@ -251,11 +253,11 @@ class LaneFollowWithDetectionNode(DTROS):
         self.tag_alignment_count = 0
         
         # Constants for parking maneuver
-        self.short_drive_time = 2.5  # Time to drive ~7 inches at slow speed
-        self.long_drive_time = 4     # Time to drive ~17 inches at slow speed
+        self.short_drive_time = 1.6  # Time to drive ~7 inches at slow speed
+        self.long_drive_time = 3.5     # Time to drive ~17 inches at slow speed
         self.turn_time = 1.5         # Time for 90-degree turn
         self.drive_speed = 0.3      # Forward speed
-        self.turn_speed = 3          # Angular velocity for turns
+        self.turn_speed = 5          # Angular velocity for turns
         self.align_speed = 3.0       # Speed for alignment correction
         self.alignment_threshold = 20 # Pixels from center
         self.stop_distance = 0.25    # Distance to stop in meters (25cm)
@@ -427,9 +429,9 @@ class LaneFollowWithDetectionNode(DTROS):
             cv2.putText(debug_img, "NO BLUE DETECTED", (width//4, 60), 
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
-        # Publish debug image
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
-        self.pub_blue_detect_img.publish(debug_msg)
+        # # Publish debug image
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        # self.pub_blue_detect_img.publish(debug_msg)
         
         return blue_on_left, blue_on_right
     
@@ -447,7 +449,7 @@ class LaneFollowWithDetectionNode(DTROS):
         
         # Use higher forward velocity and moderate turning to create a larger curve
         turn_cmd.v = 0.35  # Higher forward velocity for a wider curve
-        turn_cmd.omega = 1.5 # Moderate but consistent turning rate
+        turn_cmd.omega = 2 # Moderate but consistent turning rate
         
         # Execute the turn for longer duration to complete the curve
         turn_duration = 2.5  # Longer duration for a bigger curve
@@ -538,8 +540,8 @@ class LaneFollowWithDetectionNode(DTROS):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Publish debug image
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
-        self.pub_debug_img.publish(debug_msg)
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        # self.pub_debug_img.publish(debug_msg)
         
         return tag_id, debug_img
     
@@ -625,8 +627,8 @@ class LaneFollowWithDetectionNode(DTROS):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 0), 2)
         
         # Publish debug image for blue crosswalk detection
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
-        self.pub_blue_line_detect_img.publish(debug_msg)
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        # self.pub_blue_line_detect_img.publish(debug_msg)
         
         return self.blue_crosswalk_detected
     
@@ -726,9 +728,9 @@ class LaneFollowWithDetectionNode(DTROS):
             # Only increment counter if duck isn't visible this frame
             self.duck_detected_false_counter += 1
             
-            # Only set duck_detected to False after many consecutive misses
-            if self.duck_detected_false_counter >= 20:  # Require more consecutive misses (8Hz x 2.5s = 20)
-                self.duck_detected = False
+            # # Only set duck_detected to False after many consecutive misses
+            # if self.duck_detected_false_counter >= 20:  # Require more consecutive misses (8Hz x 2.5s = 20)
+            self.duck_detected = False
                 
             # Add text showing no detection
             cv2.putText(debug_img, f"No duck detected (counter: {self.duck_detected_false_counter}/20)", (10, 30), 
@@ -743,8 +745,8 @@ class LaneFollowWithDetectionNode(DTROS):
                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Publish debug image for duck detection
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(full_debug))
-        self.pub_duck_detect_img.publish(debug_msg)
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(full_debug))
+        # self.pub_duck_detect_img.publish(debug_msg)
         
         return self.duck_detected
     
@@ -756,7 +758,7 @@ class LaneFollowWithDetectionNode(DTROS):
         self.state_time += 1
         
         # Define maneuver parameters
-        turn_angle = 4.0     # Angular velocity for turns
+        turn_angle = 6     # Angular velocity for turns
         turn_time = 10       # Duration of turns (in cycles)
         straight_time = 20   # Duration of straight segments (in cycles)
         wait_time = 5        # Initial wait time
@@ -783,8 +785,8 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Left turn completed")
-            cmd.v = 0.25
-            cmd.omega = turn_angle
+            cmd.v = 0.4
+            cmd.omega = 7
         elif self.maneuver_state == 2:
             # Drive straight into other lane
             if self.state_time > straight_time:
@@ -799,8 +801,8 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Right turn completed")
-            cmd.v = 0.2
-            cmd.omega = -turn_angle
+            cmd.v = 0.3
+            cmd.omega = -4
         elif self.maneuver_state == 4:
             # Drive straight past the obstacle
             if self.state_time > straight_time * 1.5:  # Drive longer to pass completely
@@ -831,7 +833,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Final alignment completed")
-            cmd.v = 0.2
+            cmd.v = 0.3
             cmd.omega = turn_angle
         else:
             # End maneuver
@@ -1003,12 +1005,12 @@ class LaneFollowWithDetectionNode(DTROS):
                 cv2.line(debug_image, (left_limit, 0), (left_limit, debug_image.shape[0]), (0, 255, 255), 1)
                 cv2.line(debug_image, (right_limit, 0), (right_limit, debug_image.shape[0]), (0, 255, 255), 1)
             
-            # Publish the debug image
-            debug_msg = CompressedImage()
-            debug_msg.header.stamp = rospy.Time.now()
-            debug_msg.format = "jpeg"
-            debug_msg.data = np.array(cv2.imencode('.jpg', debug_image)[1]).tostring()
-            self.pub_debug_img.publish(debug_msg)
+            # # Publish the debug image
+            # debug_msg = CompressedImage()
+            # debug_msg.header.stamp = rospy.Time.now()
+            # debug_msg.format = "jpeg"
+            # debug_msg.data = np.array(cv2.imencode('.jpg', debug_image)[1]).tostring()
+            # self.pub_debug_img.publish(debug_msg)
                 
         except Exception as e:
             rospy.logerr(f"Error processing image for parking: {e}")
@@ -1059,13 +1061,13 @@ class LaneFollowWithDetectionNode(DTROS):
             # Turn 90 degrees in the appropriate direction
             if self.stall == 1 or self.stall == 2:
                 # Right turn for stalls 1 and 2
-                cmd.v = 0.1
-                cmd.omega = -self.turn_speed
+                cmd.v = 0.3  # Slower velocity for sharper turn
+                cmd.omega = -5.5  # Stronger negative omega for sharper right turn
                 rospy.loginfo_throttle(1.0, "Parking: Turning right 90 degrees")
             else:
                 # Left turn for stalls 3 and 4
-                cmd.v = 0.1
-                cmd.omega = self.turn_speed
+                cmd.v = 0.3
+                cmd.omega = 7
                 rospy.loginfo_throttle(1.0, "Parking: Turning left 90 degrees")
             
             if elapsed > self.turn_time:
@@ -1167,10 +1169,10 @@ class LaneFollowWithDetectionNode(DTROS):
             cmd.v = 0.15  # Slower approach speed for more controlled stopping
             cmd.omega = 0
             
-            # Check for TOF sensor health
-            tof_age = current_time - self.tof_last_update
-            if tof_age > 1.0:  # No TOF updates in more than 1 second
-                rospy.logwarn_throttle(1.0, f"Parking: TOF sensor not updating ({tof_age:.1f}s old)")
+            # # Check for TOF sensor health
+            # tof_age = current_time - self.tof_last_update
+            # if tof_age > 1.0:  # No TOF updates in more than 1 second
+            #     rospy.logwarn_throttle(1.0, f"Parking: TOF sensor not updating ({tof_age:.1f}s old)")
             
             # Log the TOF distance
             rospy.loginfo_throttle(0.5, f"Parking: Approaching stall, TOF distance: {self.tof_distance:.2f}m (stop at {self.stop_distance:.2f}m)")
@@ -1258,7 +1260,7 @@ class LaneFollowWithDetectionNode(DTROS):
                     cx = int(M['m10'] / M['m00'])
                     cy = int(M['m01'] / M['m00'])
                     # For white line, adjust the offset differently
-                    self.proportional = cx - int(crop_width / 2) - 300
+                    self.proportional = cx - int(crop_width / 2) - 320
                     if DEBUG:
                         cv2.drawContours(crop, white_contours, max_white_idx, (255, 0, 0), 3)
                         cv2.circle(crop, (cx, cy), 7, (255, 0, 0), -1)
@@ -1339,8 +1341,8 @@ class LaneFollowWithDetectionNode(DTROS):
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 0, 255), 2)
         
         # Publish debug image
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
-        self.pub_debug_img.publish(debug_msg)
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        # self.pub_debug_img.publish(debug_msg)
 
     def process_red_line_detection(self, img):
         """Process the image to detect red lines on the path"""
@@ -1427,9 +1429,9 @@ class LaneFollowWithDetectionNode(DTROS):
             cv2.putText(debug_img, f"Cooldown: {self.red_line_cooldown}s", (10, 90), 
                        cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 0, 255), 2)
         
-        # Publish debug image for red line detection
-        debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
-        self.pub_red_line_img.publish(debug_msg)
+        # # Publish debug image for red line detection
+        # debug_msg = CompressedImage(format="jpeg", data=self.jpeg.encode(debug_img))
+        # self.pub_red_line_img.publish(debug_msg)
 
     def adjust_velocity_based_on_detection(self):
         """Adjust velocity based on duckiebot detection"""
@@ -1515,16 +1517,18 @@ class LaneFollowWithDetectionNode(DTROS):
             if self.duck_detected:
                 rospy.loginfo("Duck detected at crosswalk, stopping")
                 self.set_led_color("purple")  # Use purple LED for duck waiting
+                self.duck_detected_false_counter = 0
                 self.stop(2)
             
             # Only proceed if we're confident no duck is present
-            if not self.duck_detected and self.duck_detected_false_counter >= 80:
+            if not self.duck_detected and self.duck_detected_false_counter >= 150:
                 rospy.loginfo(f"No duck detected for {self.duck_detected_false_counter} consecutive frames. Resuming after crosswalk")
                 self.at_crosswalk = False
                 self.duck_detection_enabled = False
                 self.blue_line_detection_enabled = False
                 self.blue_crosswalk_detected = False
                 self.set_led_color("green")
+                self.duck_detected_false_counter = 0
             
             # Skip the rest of the drive function while at crosswalk
             return
@@ -1594,7 +1598,7 @@ class LaneFollowWithDetectionNode(DTROS):
             self.obj_stop = False
             self.logwarn("About to stop")
             self.set_led_color("yellow")
-            rospy.sleep(1.0)
+            rospy.sleep(0.5)
             self.logwarn("Stopped for one second")
             return
 
@@ -1691,10 +1695,10 @@ class LaneFollowWithDetectionNode(DTROS):
             # Set command for moving straight
             straight_cmd = Twist2DStamped()
             straight_cmd.v = 0.3  # Forward velocity
-            straight_cmd.omega = -1  # No turning
+            straight_cmd.omega = 0  # No turning
             
             # Move straight for 2 seconds
-            straight_duration = 4.0
+            straight_duration = 3.5
             start_time = rospy.get_time()
             while rospy.get_time() - start_time < straight_duration:
                 self.vel_pub.publish(straight_cmd)
@@ -1713,7 +1717,7 @@ class LaneFollowWithDetectionNode(DTROS):
             else:
                 rospy.loginfo("First turn was LEFT, now turning RIGHT")
                 self.turn_right()
-            self.red_line_cooldown = self.red_line_cooldown_time / 3
+            self.red_line_cooldown = self.red_line_cooldown_time / 4
             rospy.loginfo(f"Reduced cooldown time to {self.red_line_cooldown} seconds for faster fourth line detection")
         
             # Enable April tag detection after the third red line
@@ -1743,6 +1747,7 @@ class LaneFollowWithDetectionNode(DTROS):
         
         elif self.red_line_count == 5:
             rospy.loginfo("Fifth red line detected. Enabling Blue detection at crosswalks.")
+            self.red_line_cooldown = self.red_line_cooldown_time
 
             rospy.loginfo(type(self.detected_tag))
             # Make the opposite turn from what was done at the first red line
@@ -1821,7 +1826,7 @@ class LaneFollowWithDetectionNode(DTROS):
         self.twist.omega = 0
         for i in range(duration):
             self.vel_pub.publish(self.twist)
-            rospy.sleep(1.0)
+            # rospy.sleep(1.0)
 
     def shutdown_robot(self, event=None):
         """Shutdown the robot using the dts command"""
@@ -1846,6 +1851,7 @@ class LaneFollowWithDetectionNode(DTROS):
         
         try:
             # Create the shutdown command
+            sys.exit(0)
             shutdown_command = f"dts duckiebot shutdown {hostname}.local"
             
             # Execute the shutdown command
@@ -1877,7 +1883,7 @@ class LaneFollowWithDetectionNode(DTROS):
 
 if __name__ == "__main__":
     args = parse_args()
-    node = LaneFollowWithDetectionNode("lane_follow_with_detection_node")
+    node = LaneFollowWithDetectionNode("lane_follow_with_detection_node", args)
     rate = rospy.Rate(8)  # 8hz
     while not rospy.is_shutdown():
         node.drive()
