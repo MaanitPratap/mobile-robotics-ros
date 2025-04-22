@@ -7,7 +7,7 @@ dt-launchfile-init
 
 # Set the parking stall parameter (1-4)
 # Stall 1 and 2 are on the right side, 3 and 4 are on the left side
-export PARKING_STALL=1
+export PARKING_STALL=2
 
 # Start the LED service
 rosrun led_service led_service_node.py &

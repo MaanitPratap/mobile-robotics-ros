@@ -109,7 +109,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # PID Variables for lane following
         self.proportional = None
         if ENGLISH:
-            self.offset = 190
+            self.offset = 185
         else:
             self.offset = 220
         if AUSSIE:
@@ -253,8 +253,8 @@ class LaneFollowWithDetectionNode(DTROS):
         self.tag_alignment_count = 0
         
         # Constants for parking maneuver
-        self.short_drive_time = 1.6  # Time to drive ~7 inches at slow speed
-        self.long_drive_time = 3.5     # Time to drive ~17 inches at slow speed
+        self.short_drive_time = 1.2  # Time to drive ~7 inches at slow speed
+        self.long_drive_time = 2.4     # Time to drive ~17 inches at slow speed
         self.turn_time = 1.5         # Time for 90-degree turn
         self.drive_speed = 0.3      # Forward speed
         self.turn_speed = 5          # Angular velocity for turns
@@ -760,7 +760,7 @@ class LaneFollowWithDetectionNode(DTROS):
         # Define maneuver parameters
         turn_angle = 6     # Angular velocity for turns
         turn_time = 10       # Duration of turns (in cycles)
-        straight_time = 20   # Duration of straight segments (in cycles)
+        straight_time = 12   # Duration of straight segments (in cycles)
         wait_time = 5        # Initial wait time
         
         # Create command message
@@ -802,10 +802,10 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Right turn completed")
             cmd.v = 0.3
-            cmd.omega = -4
+            cmd.omega = -5
         elif self.maneuver_state == 4:
             # Drive straight past the obstacle
-            if self.state_time > straight_time * 1.5:  # Drive longer to pass completely
+            if self.state_time > straight_time * 2.2:  # Drive longer to pass completely
                 self.maneuver_state += 1
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Drive past obstacle completed")
@@ -818,7 +818,7 @@ class LaneFollowWithDetectionNode(DTROS):
                 self.state_time = 0
                 rospy.loginfo("Maneuver: Right turn to original lane completed")
             cmd.v = 0.2
-            cmd.omega = -turn_angle
+            cmd.omega = -5
         elif self.maneuver_state == 6:
             # Drive straight into original lane
             if self.state_time > straight_time:
@@ -827,14 +827,14 @@ class LaneFollowWithDetectionNode(DTROS):
                 rospy.loginfo("Maneuver: Return to original lane completed")
             cmd.v = 0.2
             cmd.omega = 0
-        elif self.maneuver_state == 7:
-            # Turn left to face forward
-            if self.state_time > turn_time:
-                self.maneuver_state += 1
-                self.state_time = 0
-                rospy.loginfo("Maneuver: Final alignment completed")
-            cmd.v = 0.3
-            cmd.omega = turn_angle
+        # elif self.maneuver_state == 7:
+        #     # Turn left to face forward
+        #     if self.state_time > turn_time:
+        #         self.maneuver_state += 1
+        #         self.state_time = 0
+        #         rospy.loginfo("Maneuver: Final alignment completed")
+        #     cmd.v = 0.3
+        #     cmd.omega = turn_angle
         else:
             # End maneuver
             self.maneuvering = False
@@ -1062,7 +1062,7 @@ class LaneFollowWithDetectionNode(DTROS):
             if self.stall == 1 or self.stall == 2:
                 # Right turn for stalls 1 and 2
                 cmd.v = 0.3  # Slower velocity for sharper turn
-                cmd.omega = -5.5  # Stronger negative omega for sharper right turn
+                cmd.omega = -5.8  # Stronger negative omega for sharper right turn
                 rospy.loginfo_throttle(1.0, "Parking: Turning right 90 degrees")
             else:
                 # Left turn for stalls 3 and 4
@@ -1260,7 +1260,7 @@ class LaneFollowWithDetectionNode(DTROS):
                     cx = int(M['m10'] / M['m00'])
                     cy = int(M['m01'] / M['m00'])
                     # For white line, adjust the offset differently
-                    self.proportional = cx - int(crop_width / 2) - 320
+                    self.proportional = cx - int(crop_width / 2) - 330
                     if DEBUG:
                         cv2.drawContours(crop, white_contours, max_white_idx, (255, 0, 0), 3)
                         cv2.circle(crop, (cx, cy), 7, (255, 0, 0), -1)
